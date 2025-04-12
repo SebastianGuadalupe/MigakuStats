@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Migaku Custom Stats
 // @namespace    http://tampermonkey.net/
-// @version      0.0.5
+// @version      0.0.6
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
 // @match        https://study.migaku.com
@@ -34,6 +34,10 @@
         align-items: center;
         justify-content: space-around;
         padding: 8px 0;
+    }
+
+    .MCS__deck-selector {
+        margin: 16px 0;
     }
     `;
 
@@ -100,6 +104,8 @@
   let dueChartInstance = null;
   let lastWordStats = null;
   let lastDueStats = null;
+  let availableDecks = [];
+  let selectedDeckId = "all";
 
   function waitForElement(selector, timeout = 15000) {
     return new Promise((resolve, reject) => {
@@ -399,15 +405,75 @@
 
             extensionLog("Executing SQL queries...");
 
-            const wordQuery = `
-                    SELECT
-                        SUM(CASE WHEN knownStatus = 'KNOWN' THEN 1 ELSE 0 END) as known_count,
-                        SUM(CASE WHEN knownStatus = 'LEARNING' THEN 1 ELSE 0 END) as learning_count,
-                        SUM(CASE WHEN knownStatus = 'UNKNOWN' THEN 1 ELSE 0 END) as unknown_count,
-                        SUM(CASE WHEN knownStatus = 'IGNORE' THEN 1 ELSE 0 END) as ignored_count
-                    FROM WordList
-                    WHERE language = ? AND del = 0;`;
-            const wordResults = dbInstance.exec(wordQuery, [selectedLanguage]);
+            const decksQuery = `
+              SELECT id, name 
+              FROM deck 
+              WHERE lang = ? AND del = 0
+              ORDER BY name;
+            `;
+
+            try {
+              const decksResults = dbInstance.exec(decksQuery, [
+                selectedLanguage,
+              ]);
+              availableDecks = [];
+
+              availableDecks.push({ id: "all", name: "All Decks" });
+
+              if (
+                decksResults.length > 0 &&
+                decksResults[0].values.length > 0
+              ) {
+                extensionLog("Decks query results:", decksResults[0]);
+
+                decksResults[0].values.forEach((row) => {
+                  const id = String(row[0]);
+                  const name = row[1];
+                  availableDecks.push({ id, name });
+                });
+
+                extensionLog("Available decks:", availableDecks);
+
+                if (selectedDeckId === "all" && availableDecks.length > 1) {
+                  selectedDeckId = "all";
+                }
+              } else {
+                extensionLog("No decks found for language:", selectedLanguage);
+              }
+            } catch (decksError) {
+              extensionLog("Error fetching decks:", decksError);
+            }
+
+            let wordQuery = `
+              SELECT
+                  SUM(CASE WHEN knownStatus = 'KNOWN' THEN 1 ELSE 0 END) as known_count,
+                  SUM(CASE WHEN knownStatus = 'LEARNING' THEN 1 ELSE 0 END) as learning_count,
+                  SUM(CASE WHEN knownStatus = 'UNKNOWN' THEN 1 ELSE 0 END) as unknown_count,
+                  SUM(CASE WHEN knownStatus = 'IGNORE' THEN 1 ELSE 0 END) as ignored_count
+              FROM WordList
+              WHERE language = ? AND del = 0`;
+
+            let wordQueryParams = [selectedLanguage];
+
+            if (selectedDeckId !== "all") {
+              wordQuery = `
+                SELECT
+                    SUM(CASE WHEN w.knownStatus = 'KNOWN' THEN 1 ELSE 0 END) as known_count,
+                    SUM(CASE WHEN w.knownStatus = 'LEARNING' THEN 1 ELSE 0 END) as learning_count,
+                    SUM(CASE WHEN w.knownStatus = 'UNKNOWN' THEN 1 ELSE 0 END) as unknown_count,
+                    SUM(CASE WHEN w.knownStatus = 'IGNORE' THEN 1 ELSE 0 END) as ignored_count
+                FROM (
+                    SELECT DISTINCT w.dictForm, w.knownStatus
+                    FROM WordList w
+                    JOIN CardWordRelation cwr ON w.dictForm = cwr.dictForm
+                    JOIN card c ON cwr.cardId = c.id
+                    JOIN deck d ON c.deckId = d.id
+                    WHERE w.language = ? AND w.del = 0 AND d.id = ?
+                ) as w`;
+              wordQueryParams = [selectedLanguage, selectedDeckId];
+            }
+
+            const wordResults = dbInstance.exec(wordQuery, wordQueryParams);
             let wordValues = null;
             if (wordResults.length > 0 && wordResults[0].values.length > 0) {
               extensionLog("Word query results:", wordResults);
@@ -432,22 +498,29 @@
               `Calculating due cards between day ${todayDayNumber} and ${endDayNumber}`
             );
 
-            const dueQuery = `
+            let dueQuery = `
               SELECT
                 due,
                 COUNT(*) as count
               FROM card c
               JOIN card_type ct ON c.cardTypeId = ct.id
               WHERE ct.lang = ? AND c.due BETWEEN ? AND ?
-              GROUP BY due
-              ORDER BY due;
             `;
 
-            const dueResults = dbInstance.exec(dueQuery, [
+            let dueQueryParams = [
               selectedLanguage,
               todayDayNumber,
               endDayNumber,
-            ]);
+            ];
+
+            if (selectedDeckId !== "all") {
+              dueQuery += " AND c.deckId = ?";
+              dueQueryParams.push(selectedDeckId);
+            }
+
+            dueQuery += " GROUP BY due ORDER BY due";
+
+            const dueResults = dbInstance.exec(dueQuery, dueQueryParams);
             let dueData = null;
 
             if (dueResults.length > 0 && dueResults[0].values.length > 0) {
@@ -600,6 +673,9 @@
         : "migaku-custom-stats";
     statsDiv.classList.add("MCS__container");
 
+    const selectedDeckName =
+      availableDecks.find((d) => d.id === selectedDeckId)?.name || "All Decks";
+
     if (isError || message) {
       statsDiv.classList.add("UiCard", "-lesson", "Statistic__card");
       const title = isError
@@ -618,7 +694,7 @@
         ? `
             <div ${componentHash} class="MCS__word-stats-card">
                 <div ${componentHash} class="Statistic__card__header">
-                    <h3 ${componentHash} class="UiTypo UiTypo__heading3 -heading">Word Status</h3>
+                    <h3 ${componentHash} class="UiTypo UiTypo__heading3 -heading">Word Status - ${selectedDeckName}</h3>
                 </div>
                 <div ${componentHash} class="MCS__wordcount">
                     <div ${componentHash} class="MCS__wordcount__details">
@@ -663,7 +739,7 @@
           ? `
             <div ${componentHash} class="MCS__due-stats-card">
                 <div ${componentHash} class="Statistic__card__header">
-                    <h3 ${componentHash} class="UiTypo UiTypo__heading3 -heading">Cards Due (Next 30 Days)</h3>
+                    <h3 ${componentHash} class="UiTypo UiTypo__heading3 -heading">Cards Due (Next 30 Days) - ${selectedDeckName}</h3>
                 </div>
                 <div ${componentHash} class="MCS__duechart">
                     <canvas id="mcsDueBarChart"></canvas>
@@ -673,25 +749,96 @@
           : `
             <div ${componentHash} class="MCS__due-stats-card">
                 <div ${componentHash} class="Statistic__card__header">
-                    <h3 ${componentHash} class="UiTypo UiTypo__heading3 -heading">Cards Due (Next 30 Days)</h3>
-                </div>
-                <p ${componentHash} class="UiTypo UiTypo__body2">Could not load due card data.</p>
+                <h3 ${componentHash} class="UiTypo UiTypo__heading3 -heading">Cards Due (Next 30 Days)</h3>
             </div>
-        `;
+            <p ${componentHash} class="UiTypo UiTypo__body2">Could not load due card data.</p>
+        </div>
+    `;
+
+      const checkmarkIcon = (id) => {
+        return `
+        <div class="UiIcon multiselect__checkIcon" style="width: 24px;">
+          <div class="UiIcon__inner">
+            <div class="UiSvg UiIcon__svg" name="Check" gradient="true" spin="false">
+              <div class="UiSvg__inner UiIcon__gradient" style="clip-path: url('#${id}');">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" role="img">
+                  <defs>
+                    <clipPath id="${id}" data-dont-prefix-id="" transform="scale(1)">
+                      <path fill="currentColor" fill-rule="evenodd" d="M19.83 7.066a1.25 1.25 0 0 1 .104 1.764l-8 9a1.25 1.25 0 0 1-1.818.054l-5-5a1.25 1.25 0 0 1 1.768-1.768l4.063 4.063 7.119-8.01a1.25 1.25 0 0 1 1.765-.103" clip-rule="evenodd">
+                      </path>
+                    </clipPath>
+                  </defs>
+                </svg>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      };
+
+      let dropdownOptionsHTML = "";
+      availableDecks.forEach((deck) => {
+        const isSelected = selectedDeckId === deck.id;
+        dropdownOptionsHTML += `
+        <li class="multiselect__element" role="option">
+          <span class="multiselect__option ${
+            isSelected
+              ? "multiselect__option--highlight multiselect__option--selected"
+              : ""
+          }" data-value="${deck.id}">
+            <div class="multiselect__optionWrapper" style="width: 120px;">
+              <span class="UiTypo UiTypo__caption ${
+                isSelected ? "-emphasis" : ""
+              } multiselect__optionWrapper__text">${deck.name}</span>
+              <div style="display: ${isSelected ? "block" : "none"};"> 
+                ${checkmarkIcon(deck.id)}
+              </div>
+            </div>
+          </span>
+        </li>
+      `;
+      });
 
       const startHTML = `
             <h2 ${componentHash} class="UiTypo UiTypo__heading2 -heading Statistic__title">Migaku Custom Stats</h2>
             <div ${componentHash} class="UiCard -lesson Statistic__card">
+              <div ${componentHash} class="MCS__deck-selector UiFormField SettingsGeneral__optionLeft">
+                <div class="UiFormField__labelContainer">
+                  <label ${componentHash} class="UiTypo UiTypo__body UiFormField__labelContainer__typo">Deck</label>
+                </div>
+                <div class="UiFormField__controlContainer">
+                  <div tabindex="0" id="mcs-dropdown" class="multiselect multiselect--right -has-value" role="combobox" aria-owns="listbox-mcs-dropdown" style="width: 160px;">
+                    <div class="UiIcon multiselect__caret" style="width: 24px;"><div class="UiIcon__inner"><div class="UiSvg UiIcon__svg" name="ChevronDownSmall" gradient="false" spin="false"><div class="UiSvg__inner">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" role="img">
+                      <path fill="currentColor" fill-rule="evenodd" d="M7.116 10.116a1.25 1.25 0 0 1 1.768 0L12 13.232l3.116-3.116a1.25 1.25 0 0 1 1.768 1.768l-4 4a1.25 1.25 0 0 1-1.768 0l-4-4a1.25 1.25 0 0 1 0-1.768" clip-rule="evenodd"></path>
+                    </svg>
+                    </div></div></div></div>
+                    <div class="multiselect__tags">
+                      <div class="multiselect__tags-wrap" style="display: none;"></div>
+                      <div class="multiselect__spinner" style="display: none;"></div>
+                      <span class="multiselect__single"><span class="UiTypo UiTypo__caption -no-wrap multiselect__single__text" data-value="${selectedDeckId}">${selectedDeckName}</span></span>
+                    </div>
+                    <div class="multiselect__content-wrapper" tabindex="-1" style="max-height: 300px; display: none;">
+                      <ul class="multiselect__content" role="listbox" id="listbox-mcs-dropdown" style="display: inline-block;">
+                        ${dropdownOptionsHTML}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
         `;
+
       const endHTML = `
-            </div>
-        `;
+        </div>
+      `;
 
       statsDiv.innerHTML = startHTML + wordStatsHTML + dueStatsHTML + endHTML;
     }
 
     statsContainer.appendChild(statsDiv);
     extensionLog("Successfully appended/updated custom stats element(s).");
+
+    setupDropdown();
 
     if (!isError && !message) {
       if (wordStats) {
@@ -879,6 +1026,120 @@
         extensionLog("No due stats data for bar chart.");
       }
     }
+  }
+
+  function setupDropdown() {
+    const dropdown = document.getElementById("mcs-dropdown");
+    if (!dropdown) {
+      extensionLog("Dropdown element not found");
+      return;
+    }
+
+    const contentWrapper = dropdown.querySelector(
+      ".multiselect__content-wrapper"
+    );
+    const singleText = dropdown.querySelector(".multiselect__single__text");
+
+    dropdown.addEventListener("click", function (e) {
+      e.stopPropagation();
+
+      const isDisplayed = contentWrapper.style.display !== "none";
+      if (isDisplayed) {
+        contentWrapper.style.display = "none";
+        dropdown.classList.remove("multiselect--active");
+      } else {
+        contentWrapper.style.display = "block";
+        dropdown.classList.add("multiselect--active");
+      }
+    });
+
+    document.addEventListener("click", function () {
+      if (contentWrapper && contentWrapper.style.display !== "none") {
+        contentWrapper.style.display = "none";
+        dropdown.classList.remove("multiselect--active");
+      }
+    });
+
+    const options = dropdown.querySelectorAll(".multiselect__option");
+    options.forEach((option) => {
+      option.addEventListener("click", function (e) {
+        e.stopPropagation();
+
+        const value = this.getAttribute("data-value");
+        if (!value) {
+          extensionLog("Selected option has no data-value attribute");
+          return;
+        }
+
+        extensionLog(`Selected deck: ${value}`);
+
+        if (selectedDeckId === value) {
+          contentWrapper.style.display = "none";
+          dropdown.classList.remove("multiselect--active");
+          return;
+        }
+
+        selectedDeckId = value;
+
+        contentWrapper.style.display = "none";
+        dropdown.classList.remove("multiselect--active");
+
+        runFilteredStatsQuery();
+      });
+    });
+  }
+
+  function runFilteredStatsQuery() {
+    const selectedDeck = availableDecks.find((d) => d.id == selectedDeckId);
+    const deckName = selectedDeck ? selectedDeck.name : "All Decks";
+    extensionLog(
+      `Refreshing data for deck: ${deckName} (ID: ${selectedDeckId})`
+    );
+
+    if (isProcessing) {
+      extensionLog("Stats refresh already in progress, skipping.");
+      return;
+    }
+
+    isProcessing = true;
+
+    const existingDueChartCanvas = document.getElementById("mcsDueBarChart");
+    if (existingDueChartCanvas && existingDueChartCanvas.parentElement) {
+      existingDueChartCanvas.parentElement.innerHTML = `
+        <p class="UiTypo UiTypo__body2">Loading due cards data for ${deckName}...</p>
+      `;
+    }
+
+    const existingWordChartCanvas = document.getElementById(
+      "mcsWordDoughnutChart"
+    );
+    if (existingWordChartCanvas && existingWordChartCanvas.parentElement) {
+      existingWordChartCanvas.parentElement.innerHTML = `
+        <p class="UiTypo UiTypo__body2">Loading word data for ${deckName}...</p>
+      `;
+    }
+
+    if (wordChartInstance) {
+      wordChartInstance.destroy();
+      wordChartInstance = null;
+    }
+
+    if (dueChartInstance) {
+      dueChartInstance.destroy();
+      dueChartInstance = null;
+    }
+
+    initDB()
+      .then((db) => {
+        return accessMigakuData(db);
+      })
+      .catch((err) => {
+        extensionLog("Error refreshing data:", err);
+        displayCustomStats(`Error refreshing data: ${err.message}`);
+      })
+      .finally(() => {
+        isProcessing = false;
+      });
   }
 
   function setupThemeObserver() {
