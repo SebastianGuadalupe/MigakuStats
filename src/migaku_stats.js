@@ -155,7 +155,8 @@ function debounce(func, wait) {
     selectedLanguage: null,
     languageChangeObserver: null,
     themeChangeObserver: null,
-    selectedDeckId: SETTINGS.DEFAULT_DECK_ID
+    selectedDeckId: SETTINGS.DEFAULT_DECK_ID,
+    previousRoute: window.location.pathname
   };
 
   const dbState = {
@@ -220,9 +221,11 @@ function debounce(func, wait) {
     /* Make sure canvas elements are visible */
     canvas {
         display: block;
-        width: 100%;
-        height: 100%;
-        background-color: rgba(0, 0, 0, 0.02);
+        width: 100% !important;
+        height: 100% !important;
+        position: absolute;
+        top: 0;
+        left: 0;
     }
     `;
 
@@ -268,8 +271,12 @@ function debounce(func, wait) {
     wordChartInstance: null,
     dueChartInstance: null,
     
+    resetCharts() {
+      this.destroyCharts();
+    },
+    
     /**
-     * Creates a word distribution pie chart
+     * Updates or creates a word distribution pie chart
      * @param {HTMLCanvasElement} canvas - The canvas element to render on
      * @param {Object} wordStats - The word statistics data
      * @param {Function} logFn - Logging function
@@ -281,111 +288,127 @@ function debounce(func, wait) {
         return null;
       }
       
-      // Set explicit dimensions
-      canvas.width = canvas.offsetWidth || 200;
-      canvas.height = canvas.offsetHeight || 200;
-      
       const ctx = canvas.getContext('2d');
       if (!ctx) {
         logFn("Failed to get word chart canvas context");
         return null;
       }
       
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const themeColors = getThemeColors();
+      const data = [
+        wordStats.known_count || 0,
+        wordStats.learning_count || 0,
+        wordStats.unknown_count || 0,
+        wordStats.ignored_count || 0,
+      ];
+      
+      const chartConfig = {
+        type: 'doughnut',
+        data: {
+          labels: [
+            CHART_CONFIG.CHART_LABELS.KNOWN,
+            CHART_CONFIG.CHART_LABELS.LEARNING, 
+            CHART_CONFIG.CHART_LABELS.UNKNOWN, 
+            CHART_CONFIG.CHART_LABELS.IGNORED
+          ],
+          datasets: [{
+            label: 'Word Status Distribution',
+            data: data,
+            backgroundColor: [
+              themeColors.knownColor,
+              themeColors.learningColor,
+              themeColors.unknownColor,
+              themeColors.ignoredColor,
+            ],
+            borderWidth: 0,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: {
+            duration: 800,
+            easing: 'easeOutQuart'
+          },
+          plugins: {
+            legend: {
+              position: 'right',
+              labels: {
+                boxWidth: 20,
+                color: themeColors.textColor,
+              },
+            },
+            tooltip: {
+              callbacks: {
+                label: function (context) {
+                  let label = context.label || "";
+                  if (label) {
+                    label += ": ";
+                  }
+                  if (context.parsed !== null) {
+                    label += context.parsed.toLocaleString();
+                  }
+                  return label;
+                },
+              },
+              backgroundColor: themeColors.backgroundElevation2,
+              titleFontColor: themeColors.textColor,
+              caretSize: CHART_CONFIG.TOOLTIP_CONFIG.CARET_SIZE,
+              padding: CHART_CONFIG.TOOLTIP_CONFIG.PADDING,
+              cornerRadius: CHART_CONFIG.TOOLTIP_CONFIG.CORNER_RADIUS,
+              boxPadding: CHART_CONFIG.TOOLTIP_CONFIG.BOX_PADDING,
+              multiKeyBackground: themeColors.backgroundElevation1,
+              bodyColor: themeColors.textColor,
+              titleColor: themeColors.textColor,
+            }
+          },
+        }
+      };
       
       try {
         if (this.wordChartInstance) {
-          try {
-            this.wordChartInstance.destroy();
-          } catch (e) {
-            logFn("Error destroying previous word chart:", e);
-          }
-          this.wordChartInstance = null;
+          logFn("Updating existing word chart with new data");
+          
+          this.wordChartInstance.data.datasets[0].data = data;
+          
+          this.wordChartInstance.data.datasets[0].backgroundColor = [
+            themeColors.knownColor,
+            themeColors.learningColor,
+            themeColors.unknownColor,
+            themeColors.ignoredColor,
+          ];
+          
+          this.wordChartInstance.options.plugins.legend.labels.color = themeColors.textColor;
+          this.wordChartInstance.options.plugins.tooltip.backgroundColor = themeColors.backgroundElevation2;
+          this.wordChartInstance.options.plugins.tooltip.bodyColor = themeColors.textColor;
+          this.wordChartInstance.options.plugins.tooltip.titleColor = themeColors.textColor;
+          
+          this.wordChartInstance.update();
+          return this.wordChartInstance;
         }
         
-        const themeColors = getThemeColors();
-        const data = [
-          wordStats.known_count || 0,
-          wordStats.learning_count || 0,
-          wordStats.unknown_count || 0,
-          wordStats.ignored_count || 0,
-        ];
-        
-        let chartOptions = {
-          type: 'doughnut',
-          data: {
-            labels: [
-              CHART_CONFIG.CHART_LABELS.KNOWN,
-              CHART_CONFIG.CHART_LABELS.LEARNING, 
-              CHART_CONFIG.CHART_LABELS.UNKNOWN, 
-              CHART_CONFIG.CHART_LABELS.IGNORED
-            ],
-            datasets: [{
-              label: 'Word Status Distribution',
-              data: data,
-              backgroundColor: [
-                themeColors.knownColor,
-                themeColors.learningColor,
-                themeColors.unknownColor,
-                themeColors.ignoredColor,
-              ],
-              borderWidth: 0,
-            }],
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              legend: {
-                position: 'right',
-                labels: {
-                  boxWidth: 20,
-                  color: themeColors.textColor,
-                },
-              },
-              tooltip: {
-                callbacks: {
-                  label: function (context) {
-                    let label = context.label || "";
-                    if (label) {
-                      label += ": ";
-                    }
-                    if (context.parsed !== null) {
-                      label += context.parsed.toLocaleString();
-                    }
-                    return label;
-                  },
-                },
-                backgroundColor: themeColors.backgroundElevation2,
-                titleFontColor: themeColors.textColor,
-                caretSize: CHART_CONFIG.TOOLTIP_CONFIG.CARET_SIZE,
-                padding: CHART_CONFIG.TOOLTIP_CONFIG.PADDING,
-                cornerRadius: CHART_CONFIG.TOOLTIP_CONFIG.CORNER_RADIUS,
-                boxPadding: CHART_CONFIG.TOOLTIP_CONFIG.BOX_PADDING,
-                multiKeyBackground: themeColors.backgroundElevation1,
-                bodyColor: themeColors.textColor,
-                titleColor: themeColors.textColor,
-              }
-            },
-          }
-        };
+        this.wordChartInstance = new Chart(ctx, chartConfig);
+        logFn("Word chart created successfully");
+        return this.wordChartInstance;
+      } catch (error) {
+        logFn("Error in word chart creation/update:", error);
         
         try {
-          this.wordChartInstance = new Chart(ctx, chartOptions);
-          logFn("Word chart created successfully");
+          if (this.wordChartInstance) {
+            this.wordChartInstance.destroy();
+          }
+          this.wordChartInstance = new Chart(ctx, chartConfig);
+          logFn("Word chart recreated after error");
           return this.wordChartInstance;
-        } catch (chartError) {
-          logFn("Error creating word chart:", chartError);
+        } catch (recreateError) {
+          logFn("Failed to recreate word chart:", recreateError);
           return null;
         }
-      } catch (error) {
-        logFn("Error in createWordChart:", error);
-        return null;
       }
     },
     
     /**
-     * Creates a due cards bar chart
+     * Updates or creates a due cards bar chart
      * @param {HTMLCanvasElement} canvas - The canvas element to render on
      * @param {Object} dueStats - The due statistics data
      * @param {Function} logFn - Logging function
@@ -402,9 +425,6 @@ function debounce(func, wait) {
         return null;
       }
       
-      canvas.width = canvas.offsetWidth || 600;
-      canvas.height = canvas.offsetHeight || 300;
-      
       const themeColors = getThemeColors();
       const ctx = canvas.getContext('2d');
       if (!ctx) {
@@ -412,85 +432,104 @@ function debounce(func, wait) {
         return null;
       }
       
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const chartConfig = {
+        type: 'bar',
+        data: {
+          labels: dueStats.labels,
+          datasets: [{
+            label: 'Cards Due',
+            data: dueStats.counts,
+            backgroundColor: themeColors.barColor,
+            borderWidth: 0,
+            borderRadius: 4,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: {
+            duration: 800,
+            easing: 'easeOutQuart'
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              ticks: {
+                color: themeColors.textColor,
+                precision: 0,
+              },
+              grid: {
+                color: themeColors.gridColor,
+              },
+            },
+            x: {
+              ticks: {
+                color: themeColors.textColor,
+                maxRotation: 45,
+                minRotation: 45,
+              },
+              grid: {
+                color: themeColors.gridColor,
+              },
+            },
+          },
+          plugins: {
+            legend: {
+              display: false,
+            },
+            tooltip: {
+              backgroundColor: themeColors.backgroundElevation2,
+              titleFontColor: themeColors.textColor,
+              caretSize: CHART_CONFIG.TOOLTIP_CONFIG.CARET_SIZE,
+              padding: CHART_CONFIG.TOOLTIP_CONFIG.PADDING,
+              cornerRadius: CHART_CONFIG.TOOLTIP_CONFIG.CORNER_RADIUS,
+              boxPadding: CHART_CONFIG.TOOLTIP_CONFIG.BOX_PADDING,
+              multiKeyBackground: themeColors.backgroundElevation1,
+              bodyColor: themeColors.textColor,
+              titleColor: themeColors.textColor,
+            }
+          },
+        }
+      };
       
       try {
         if (this.dueChartInstance) {
-          try {
-            this.dueChartInstance.destroy();
-          } catch (e) {
-            logFn("Error destroying previous chart:", e);
-          }
-          this.dueChartInstance = null;
+          logFn("Updating existing due chart with new data");
+          
+          this.dueChartInstance.data.labels = dueStats.labels;
+          this.dueChartInstance.data.datasets[0].data = dueStats.counts;
+          
+          this.dueChartInstance.data.datasets[0].backgroundColor = themeColors.barColor;
+          
+          this.dueChartInstance.options.scales.y.ticks.color = themeColors.textColor;
+          this.dueChartInstance.options.scales.y.grid.color = themeColors.gridColor;
+          this.dueChartInstance.options.scales.x.ticks.color = themeColors.textColor;
+          this.dueChartInstance.options.scales.x.grid.color = themeColors.gridColor;
+          this.dueChartInstance.options.plugins.tooltip.backgroundColor = themeColors.backgroundElevation2;
+          this.dueChartInstance.options.plugins.tooltip.bodyColor = themeColors.textColor;
+          this.dueChartInstance.options.plugins.tooltip.titleColor = themeColors.textColor;
+          
+          this.dueChartInstance.update();
+          return this.dueChartInstance;
         }
         
-        let chartOptions = {
-          type: 'bar',
-          data: {
-            labels: dueStats.labels,
-            datasets: [{
-              label: 'Cards Due',
-              data: dueStats.counts,
-              backgroundColor: themeColors.barColor,
-              borderWidth: 0,
-              borderRadius: 4,
-            }],
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-              y: {
-                beginAtZero: true,
-                ticks: {
-                  color: themeColors.textColor,
-                  precision: 0,
-                },
-                grid: {
-                  color: themeColors.gridColor,
-                },
-              },
-              x: {
-                ticks: {
-                  color: themeColors.textColor,
-                  maxRotation: 45,
-                  minRotation: 45,
-                },
-                grid: {
-                  color: themeColors.gridColor,
-                },
-              },
-            },
-            plugins: {
-              legend: {
-                display: false,
-              },
-              tooltip: {
-                backgroundColor: themeColors.backgroundElevation2,
-                titleFontColor: themeColors.textColor,
-                caretSize: CHART_CONFIG.TOOLTIP_CONFIG.CARET_SIZE,
-                padding: CHART_CONFIG.TOOLTIP_CONFIG.PADDING,
-                cornerRadius: CHART_CONFIG.TOOLTIP_CONFIG.CORNER_RADIUS,
-                boxPadding: CHART_CONFIG.TOOLTIP_CONFIG.BOX_PADDING,
-                multiKeyBackground: themeColors.backgroundElevation1,
-                bodyColor: themeColors.textColor,
-                titleColor: themeColors.textColor,
-              }
-            },
-          }
-        };
+        this.dueChartInstance = new Chart(ctx, chartConfig);
+        logFn("Due chart created successfully");
+        return this.dueChartInstance;
+      } catch (error) {
+        logFn("Error in due chart creation/update:", error);
         
         try {
-          this.dueChartInstance = new Chart(ctx, chartOptions);
-          logFn("Due chart created successfully");
+          if (this.dueChartInstance) {
+            this.dueChartInstance.destroy();
+          }
+          this.dueChartInstance = new Chart(ctx, chartConfig);
+          logFn("Due chart recreated after error");
           return this.dueChartInstance;
-        } catch (chartError) {
-          logFn("Error creating due chart:", chartError);
+        } catch (recreateError) {
+          logFn("Failed to recreate due chart:", recreateError);
           return null;
         }
-      } catch (error) {
-        logFn("Error in createDueChart:", error);
-        return null;
       }
     },
     
@@ -528,9 +567,6 @@ function debounce(func, wait) {
       }
     },
     
-    /**
-     * Clean up chart instances before unmounting
-     */
     destroyCharts() {
       if (this.wordChartInstance) {
         try {
@@ -715,6 +751,7 @@ function debounce(func, wait) {
     if (currentLanguage !== appState.selectedLanguage) {
       appState.selectedDeckId = SETTINGS.DEFAULT_DECK_ID;
       extensionLog(`Language changed from "${appState.selectedLanguage}" to "${currentLanguage}". Reset deck to "${UI_TEXTS.ALL_DECKS}".`);
+      ChartManager.resetCharts();
     }
 
     appState.selectedLanguage = currentLanguage;
@@ -1183,6 +1220,256 @@ function debounce(func, wait) {
     });
   }
 
+  // =========================================================================
+  // Vue Components
+  // =========================================================================
+
+  const DeckSelector = {
+    props: {
+      availableDecks: Array,
+      selectedDeckId: String,
+      componentHash: String
+    },
+    data() {
+      return {
+        isDropdownOpen: false
+      };
+    },
+    computed: {
+      selectedDeckName() {
+        const deck = this.availableDecks.find(d => d.id === this.selectedDeckId);
+        return deck ? deck.name : UI_TEXTS.ALL_DECKS;
+      }
+    },
+    methods: {
+      toggleDropdown(event) {
+        event.stopPropagation();
+        this.isDropdownOpen = !this.isDropdownOpen;
+      },
+      selectDeck(deckId, event) {
+        event.stopPropagation();
+        if (this.selectedDeckId === deckId) {
+          this.isDropdownOpen = false;
+          return;
+        }
+        
+        this.$emit('deck-selected', deckId);
+        this.isDropdownOpen = false;
+      },
+      closeDropdown() {
+        this.isDropdownOpen = false;
+      }
+    },
+    mounted() {
+      document.addEventListener('click', this.closeDropdown);
+    },
+    beforeUnmount() {
+      document.removeEventListener('click', this.closeDropdown);
+    },
+    template: `
+      <div v-bind:[componentHash]="true" class="MCS__deck-selector UiFormField SettingsGeneral__optionLeft">
+        <div class="UiFormField__labelContainer">
+          <label v-bind:[componentHash]="true" class="UiTypo UiTypo__body UiFormField__labelContainer__typo">Deck</label>
+        </div>
+        <div class="UiFormField__controlContainer">
+          <div
+            tabindex="0"
+            class="multiselect multiselect--right -has-value"
+            role="combobox"
+            style="width: 250px;"
+            :class="{'multiselect--active': isDropdownOpen}"
+            @click="toggleDropdown"
+          >
+            <div class="UiIcon multiselect__caret" style="width: 24px;">
+              <div class="UiIcon__inner">
+                <div class="UiSvg UiIcon__svg" name="ChevronDownSmall" gradient="false" spin="false">
+                  <div class="UiSvg__inner">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" role="img">
+                      <path fill="currentColor" fill-rule="evenodd" d="M7.116 10.116a1.25 1.25 0 0 1 1.768 0L12 13.232l3.116-3.116a1.25 1.25 0 0 1 1.768 1.768l-4 4a1.25 1.25 0 0 1-1.768 0l-4-4a1.25 1.25 0 0 1 0-1.768" clip-rule="evenodd"></path>
+                    </svg>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="multiselect__tags">
+              <span class="multiselect__single">
+                <span class="UiTypo UiTypo__caption -no-wrap multiselect__single__text">{{ selectedDeckName }}</span>
+              </span>
+            </div>
+            <div 
+              class="multiselect__content-wrapper"
+              tabindex="-1"
+              style="max-height: 300px;" 
+              :style="{display: isDropdownOpen ? 'block' : 'none'}"
+            >
+              <ul class="multiselect__content" role="listbox" style="display: inline-block;">
+                <li class="multiselect__element" role="option" v-for="deck in availableDecks" :key="deck.id">
+                  <span
+                    class="multiselect__option" 
+                    :class="{'multiselect__option--highlight multiselect__option--selected': deck.id === selectedDeckId}"
+                    @click="selectDeck(deck.id, $event)"
+                  >
+                    <div class="multiselect__optionWrapper" style="width: 180px;">
+                      <span
+                        class="UiTypo UiTypo__caption"
+                        :class="{'-emphasis': deck.id === selectedDeckId}"
+                        style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                      >
+                        {{ deck.name }}
+                      </span>
+                      <div class="UiIcon multiselect__checkIcon" style="width: 24px;">
+                        <div v-if="deck.id === selectedDeckId" class="UiIcon__inner">
+                          <div class="UiSvg UiIcon__svg" name="Check" gradient="true" spin="false">
+                            <div class="UiSvg__inner UiIcon__gradient" :style="'clip-path: url(#checkmark-' + deck.id + ');'">
+                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" role="img">
+                                <defs>
+                                  <clipPath :id="'checkmark-' + deck.id" data-dont-prefix-id="" transform="scale(1)">
+                                    <path fill="currentColor" fill-rule="evenodd" d="M19.83 7.066a1.25 1.25 0 0 1 .104 1.764l-8 9a1.25 1.25 0 0 1-1.818.054l-5-5a1.25 1.25 0 0 1 1.768-1.768l4.063 4.063 7.119-8.01a1.25 1.25 0 0 1 1.765-.103" clip-rule="evenodd">
+                                    </path>
+                                  </clipPath>
+                                </defs>
+                              </svg>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </span>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    `
+  };
+
+  const WordStatsCard = {
+    props: {
+      wordStats: Object,
+      componentHash: String,
+      chartRef: String
+    },
+    mounted() {
+      this.$nextTick(() => {
+        if (this.$refs.canvas) {
+          this.$emit('canvas-mounted', this.$refs.canvas);
+        }
+      });
+    },
+    updated() {
+      // Re-emit the canvas reference if it exists but might have been reset
+      this.$nextTick(() => {
+        if (this.$refs.canvas) {
+          this.$emit('canvas-mounted', this.$refs.canvas);
+        }
+      });
+    },
+    beforeUnmount() {
+      // Notify parent that this component is being unmounted
+      this.$emit('canvas-unmounted');
+    },
+    template: `
+      <div v-if="wordStats" v-bind:[componentHash]="true" class="MCS__word-stats-card">
+        <div v-bind:[componentHash]="true" class="Statistic__card__header">
+          <h3 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading3 -heading">Word Status</h3>
+        </div>
+        <div v-bind:[componentHash]="true" class="MCS__wordcount">
+          <div v-bind:[componentHash]="true" class="MCS__wordcount__details">
+            <div v-bind:[componentHash]="true" class="MCS__wordcount__details__column">
+              <div v-bind:[componentHash]="true">
+                <span class="UiTypo UiTypo__caption">Known:</span> 
+                <span class="UiTypo UiTypo__heading4 -heading -inline">{{ wordStats.known_count ?? 'N/A' }}</span>
+              </div>
+              <div v-bind:[componentHash]="true">
+                <span class="UiTypo UiTypo__caption">Learning:</span> 
+                <span class="UiTypo UiTypo__heading4 -heading -inline">{{ wordStats.learning_count ?? 'N/A' }}</span>
+              </div>
+              <div v-bind:[componentHash]="true">
+                <span class="UiTypo UiTypo__caption">Unknown:</span> 
+                <span class="UiTypo UiTypo__heading4 -heading -inline">{{ wordStats.unknown_count ?? 'N/A' }}</span>
+              </div>
+              <div v-bind:[componentHash]="true">
+                <span class="UiTypo UiTypo__caption">Ignored:</span> 
+                <span class="UiTypo UiTypo__heading4 -heading -inline">{{ wordStats.ignored_count ?? 'N/A' }}</span>
+              </div>
+            </div>
+          </div>
+          <div v-bind:[componentHash]="true" class="MCS__wordcount__piechart">
+            <canvas ref="canvas"></canvas>
+          </div>
+        </div>
+      </div>
+      <div v-else v-bind:[componentHash]="true" class="MCS__word-stats-card">
+        <div v-bind:[componentHash]="true" class="Statistic__card__header">
+          <h3 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading3 -heading">Word Status</h3>
+        </div>
+        <p v-bind:[componentHash]="true" class="UiTypo UiTypo__body2">Could not load word status data.</p>
+      </div>
+    `
+  };
+
+  const DueStatsCard = {
+    props: {
+      dueStats: Object,
+      componentHash: String,
+      chartRef: String
+    },
+    mounted() {
+      this.$nextTick(() => {
+        if (this.$refs.canvas) {
+          this.$emit('canvas-mounted', this.$refs.canvas);
+        }
+      });
+    },
+    updated() {
+      // Re-emit the canvas reference if it exists but might have been reset
+      this.$nextTick(() => {
+        if (this.$refs.canvas) {
+          this.$emit('canvas-mounted', this.$refs.canvas);
+        }
+      });
+    },
+    beforeUnmount() {
+      // Notify parent that this component is being unmounted
+      this.$emit('canvas-unmounted');
+    },
+    template: `
+      <div v-if="dueStats && dueStats.labels && dueStats.counts" v-bind:[componentHash]="true" class="MCS__due-stats-card">
+        <div v-bind:[componentHash]="true" class="Statistic__card__header">
+          <h3 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading3 -heading">Cards Due (Next ${CHART_CONFIG.FORECAST_DAYS} Days)</h3>
+        </div>
+        <div v-bind:[componentHash]="true" class="MCS__duechart">
+          <canvas ref="canvas"></canvas>
+        </div>
+      </div>
+      <div v-else v-bind:[componentHash]="true" class="MCS__due-stats-card">
+        <div v-bind:[componentHash]="true" class="Statistic__card__header">
+          <h3 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading3 -heading">Cards Due (Next ${CHART_CONFIG.FORECAST_DAYS} Days)</h3>
+        </div>
+        <p v-bind:[componentHash]="true" class="UiTypo UiTypo__body2">Could not load due card data.</p>
+      </div>
+    `
+  };
+
+  const MessageCard = {
+    props: {
+      isError: Boolean,
+      message: String,
+      componentHash: String
+    },
+    template: `
+      <div v-bind:[componentHash]="true" class="Statistic__card__header">
+        <h3 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading3 -heading">
+          {{ isError ? '${UI_TEXTS.ERROR_TITLE}' : '${UI_TEXTS.INFO_TITLE}' }}
+        </h3>
+      </div>
+      <div v-bind:[componentHash]="true" class="MCS__message">
+        <span v-bind:[componentHash]="true" class="UiTypo UiTypo__body1">{{ message }}</span>
+      </div>
+    `
+  };
+
   /**
    * Prepares and displays the Vue component with stats data
    * 
@@ -1242,6 +1529,12 @@ function debounce(func, wait) {
     statsContainer.appendChild(vueContainer);
 
     const app = Vue.createApp({
+      components: {
+        DeckSelector,
+        WordStatsCard,
+        DueStatsCard,
+        MessageCard
+      },
       data() {
         return {
           wordStats,
@@ -1252,63 +1545,73 @@ function debounce(func, wait) {
           selectedDeckId: appState.selectedDeckId,
           selectedLanguage: appState.selectedLanguage,
           componentHash,
-          isDropdownOpen: false,
           currentTheme: getCurrentTheme(),
           wordChartRendered: false,
-          dueChartRendered: false
+          dueChartRendered: false,
+          wordCanvas: null,
+          dueCanvas: null
         };
       },
-      computed: {
-        selectedDeckName() {
-          const deck = this.availableDecks.find(d => d.id === this.selectedDeckId);
-          return deck ? deck.name : UI_TEXTS.ALL_DECKS;
-        }
-      },
       methods: {
-        toggleDropdown() {
-          this.isDropdownOpen = !this.isDropdownOpen;
-        },
-        selectDeck(deckId) {
+        handleDeckSelected(deckId) {
           if (this.selectedDeckId === deckId) {
-            this.isDropdownOpen = false;
             return;
           }
           
           this.selectedDeckId = deckId; 
           appState.selectedDeckId = deckId;
-          this.isDropdownOpen = false;
           
           runFilteredStatsQuery(this);
         },
-        closeDropdown() {
-          this.isDropdownOpen = false;
+        handleWordCanvasMounted(canvas) {
+          this.wordCanvas = canvas;
+          this.updateCharts();
+        },
+        handleDueCanvasMounted(canvas) {
+          this.dueCanvas = canvas;
+          this.updateCharts();
+        },
+        handleWordCanvasUnmounted() {
+          extensionLog("Word canvas unmounted, cleaning up");
+          this.wordCanvas = null;
+          this.wordChartRendered = false;
+        },
+        handleDueCanvasUnmounted() {
+          extensionLog("Due canvas unmounted, cleaning up");
+          this.dueCanvas = null;
+          this.dueChartRendered = false;
+        },
+        updateCharts() {
+          if (this.wordCanvas && this.dueCanvas) {
+            this.debouncedUpdateCharts();
+          }
         },
         renderCharts() {
           this.renderWordChart();
           this.renderDueChart();
         },
         renderWordChart() {
-          if (this.wordChartRendered || !this.$refs.wordChart || !this.wordStats) {
+          if (this.wordChartRendered || !this.wordCanvas || !this.wordStats) {
             return;
           }
           
           this.wordChartRendered = true;
           
           ChartManager.createWordChart(
-            this.$refs.wordChart,
+            this.wordCanvas,
             this.wordStats,
             extensionLog
           );
         },
         renderDueChart() {
-          if (this.dueChartRendered || !this.$refs.dueChart || !this.dueStats) {
+          if (this.dueChartRendered || !this.dueCanvas || !this.dueStats) {
             return;
           }
           
           this.dueChartRendered = true;
           
           ChartManager.createDueChart(
-            this.$refs.dueChart,
+            this.dueCanvas,
             this.dueStats,
             extensionLog
           );
@@ -1321,8 +1624,8 @@ function debounce(func, wait) {
           
           this.$nextTick(() => {
             ChartManager.updateCharts({
-              wordCanvas: this.$refs.wordChart,
-              dueCanvas: this.$refs.dueChart,
+              wordCanvas: this.wordCanvas,
+              dueCanvas: this.dueCanvas,
               wordStats: this.wordStats,
               dueStats: this.dueStats,
               logFn: extensionLog,
@@ -1385,11 +1688,20 @@ function debounce(func, wait) {
           this.wordChartRendered = false;
           this.dueChartRendered = false;
           this.$nextTick(this.debouncedUpdateCharts);
+        },
+        selectedLanguage(newLang, oldLang) {
+          if (newLang !== oldLang) {
+            extensionLog(`Language changed in component from ${oldLang} to ${newLang}, resetting charts`);
+            ChartManager.resetCharts();
+            this.wordCanvas = null;
+            this.dueCanvas = null;
+            this.wordChartRendered = false;
+            this.dueChartRendered = false;
+          }
         }
       },
       mounted() {
         extensionLog("Vue component mounted");
-        document.addEventListener('click', this.closeDropdown);
         
         extensionLog("Scheduling initial chart creation");
         this.$nextTick(() => {
@@ -1397,153 +1709,48 @@ function debounce(func, wait) {
         });
       },
       beforeUnmount() {
-        document.removeEventListener('click', this.closeDropdown);
+        // Ensure all charts are properly destroyed when the component is unmounted
         ChartManager.destroyCharts();
+        this.wordCanvas = null;
+        this.dueCanvas = null;
       },
       template: `
         <div class="MCS__container" :class="{'UiCard -lesson Statistic__card': isError || message}">
           <template v-if="isError || message">
-            <div :${componentHash}="true" class="Statistic__card__header">
-              <h3 :${componentHash}="true" class="UiTypo UiTypo__heading3 -heading">
-                {{ isError ? '${UI_TEXTS.ERROR_TITLE}' : '${UI_TEXTS.INFO_TITLE}' }}
-              </h3>
-            </div>
-            <div :${componentHash}="true" class="MCS__message">
-              <span :${componentHash}="true" class="UiTypo UiTypo__body1">{{ message }}</span>
-            </div>
+            <message-card 
+              :is-error="isError" 
+              :message="message" 
+              :component-hash="componentHash" 
+            />
           </template>
           <template v-else>
-            <h2 :${componentHash}="true" class="UiTypo UiTypo__heading2 -heading Statistic__title">Migaku Custom Stats</h2>
-            <div :${componentHash}="true" class="UiCard -lesson Statistic__card">
+            <h2 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading2 -heading Statistic__title">Migaku Custom Stats</h2>
+            <div v-bind:[componentHash]="true" class="UiCard -lesson Statistic__card">
               <!-- Deck Selector -->
-              <div :${componentHash}="true" class="MCS__deck-selector UiFormField SettingsGeneral__optionLeft">
-                <div class="UiFormField__labelContainer">
-                  <label :${componentHash}="true" class="UiTypo UiTypo__body UiFormField__labelContainer__typo">Deck</label>
-                </div>
-                <div class="UiFormField__controlContainer">
-                  <div
-                    tabindex="0"
-                    class="multiselect multiselect--right -has-value"
-                    role="combobox"
-                    style="width: 250px;"
-                    :class="{'multiselect--active': isDropdownOpen}"
-                    @click.stop="toggleDropdown"
-                  >
-                    <div class="UiIcon multiselect__caret" style="width: 24px;">
-                      <div class="UiIcon__inner">
-                        <div class="UiSvg UiIcon__svg" name="ChevronDownSmall" gradient="false" spin="false">
-                          <div class="UiSvg__inner">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" role="img">
-                              <path fill="currentColor" fill-rule="evenodd" d="M7.116 10.116a1.25 1.25 0 0 1 1.768 0L12 13.232l3.116-3.116a1.25 1.25 0 0 1 1.768 1.768l-4 4a1.25 1.25 0 0 1-1.768 0l-4-4a1.25 1.25 0 0 1 0-1.768" clip-rule="evenodd"></path>
-                            </svg>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    <div class="multiselect__tags">
-                      <span class="multiselect__single">
-                        <span class="UiTypo UiTypo__caption -no-wrap multiselect__single__text">{{ selectedDeckName }}</span>
-                      </span>
-                    </div>
-                    <div 
-                      class="multiselect__content-wrapper"
-                      tabindex="-1"
-                      style="max-height: 300px;" 
-                      :style="{display: isDropdownOpen ? 'block' : 'none'}"
-                    >
-                      <ul class="multiselect__content" role="listbox" style="display: inline-block;">
-                        <li class="multiselect__element" role="option" v-for="deck in availableDecks" :key="deck.id">
-                          <span
-                            class="multiselect__option" 
-                            :class="{'multiselect__option--highlight multiselect__option--selected': deck.id === selectedDeckId}"
-                            @click.stop="selectDeck(deck.id)"
-                          >
-                            <div class="multiselect__optionWrapper" style="width: 180px;">
-                              <span
-                                class="UiTypo UiTypo__caption"
-                                :class="{'-emphasis': deck.id === selectedDeckId}"
-                                style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
-                              >
-                                {{ deck.name }}
-                              </span>
-                              <div class="UiIcon multiselect__checkIcon" style="width: 24px;">
-                                <div v-if="deck.id === selectedDeckId" class="UiIcon__inner">
-                                  <div class="UiSvg UiIcon__svg" name="Check" gradient="true" spin="false">
-                                    <div class="UiSvg__inner UiIcon__gradient" :style="'clip-path: url(#checkmark-' + deck.id + ');'">
-                                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" role="img">
-                                        <defs>
-                                          <clipPath :id="'checkmark-' + deck.id" data-dont-prefix-id="" transform="scale(1)">
-                                            <path fill="currentColor" fill-rule="evenodd" d="M19.83 7.066a1.25 1.25 0 0 1 .104 1.764l-8 9a1.25 1.25 0 0 1-1.818.054l-5-5a1.25 1.25 0 0 1 1.768-1.768l4.063 4.063 7.119-8.01a1.25 1.25 0 0 1 1.765-.103" clip-rule="evenodd">
-                                            </path>
-                                          </clipPath>
-                                        </defs>
-                                      </svg>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          </span>
-                        </li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <deck-selector 
+                :available-decks="availableDecks" 
+                :selected-deck-id="selectedDeckId" 
+                :component-hash="componentHash"
+                @deck-selected="handleDeckSelected" 
+              />
               
               <!-- Word Stats -->
-              <div v-if="wordStats" :${componentHash}="true" class="MCS__word-stats-card">
-                <div :${componentHash}="true" class="Statistic__card__header">
-                  <h3 :${componentHash}="true" class="UiTypo UiTypo__heading3 -heading">Word Status</h3>
-                </div>
-                <div :${componentHash}="true" class="MCS__wordcount">
-                  <div :${componentHash}="true" class="MCS__wordcount__details">
-                    <div :${componentHash}="true" class="MCS__wordcount__details__column">
-                      <div :${componentHash}="true">
-                        <span class="UiTypo UiTypo__caption">Known:</span> 
-                        <span class="UiTypo UiTypo__heading4 -heading -inline">{{ wordStats.known_count ?? 'N/A' }}</span>
-                      </div>
-                      <div :${componentHash}="true">
-                        <span class="UiTypo UiTypo__caption">Learning:</span> 
-                        <span class="UiTypo UiTypo__heading4 -heading -inline">{{ wordStats.learning_count ?? 'N/A' }}</span>
-                      </div>
-                      <div :${componentHash}="true">
-                        <span class="UiTypo UiTypo__caption">Unknown:</span> 
-                        <span class="UiTypo UiTypo__heading4 -heading -inline">{{ wordStats.unknown_count ?? 'N/A' }}</span>
-                      </div>
-                      <div :${componentHash}="true">
-                        <span class="UiTypo UiTypo__caption">Ignored:</span> 
-                        <span class="UiTypo UiTypo__heading4 -heading -inline">{{ wordStats.ignored_count ?? 'N/A' }}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div :${componentHash}="true" class="MCS__wordcount__piechart">
-                    <canvas ref="wordChart" width="200" height="200"></canvas>
-                  </div>
-                </div>
-              </div>
-              <div v-else :${componentHash}="true" class="MCS__word-stats-card">
-                <div :${componentHash}="true" class="Statistic__card__header">
-                  <h3 :${componentHash}="true" class="UiTypo UiTypo__heading3 -heading">Word Status</h3>
-                </div>
-                <p :${componentHash}="true" class="UiTypo UiTypo__body2">Could not load word status data.</p>
-              </div>
+              <word-stats-card 
+                :word-stats="wordStats" 
+                :component-hash="componentHash" 
+                chart-ref="wordChart"
+                @canvas-mounted="handleWordCanvasMounted"
+                @canvas-unmounted="handleWordCanvasUnmounted"
+              />
               
               <!-- Due Stats -->
-              <div v-if="dueStats && dueStats.labels && dueStats.counts" :${componentHash}="true" class="MCS__due-stats-card">
-                <div :${componentHash}="true" class="Statistic__card__header">
-                  <h3 :${componentHash}="true" class="UiTypo UiTypo__heading3 -heading">Cards Due (Next ${CHART_CONFIG.FORECAST_DAYS} Days)</h3>
-                </div>
-                <div :${componentHash}="true" class="MCS__duechart">
-                  <canvas ref="dueChart" width="600" height="300"></canvas>
-                </div>
-              </div>
-              <div v-else :${componentHash}="true" class="MCS__due-stats-card">
-                <div :${componentHash}="true" class="Statistic__card__header">
-                  <h3 :${componentHash}="true" class="UiTypo UiTypo__heading3 -heading">Cards Due (Next ${CHART_CONFIG.FORECAST_DAYS} Days)</h3>
-                </div>
-                <p :${componentHash}="true" class="UiTypo UiTypo__body2">Could not load due card data.</p>
-              </div>
+              <due-stats-card 
+                :due-stats="dueStats" 
+                :component-hash="componentHash" 
+                chart-ref="dueChart"
+                @canvas-mounted="handleDueCanvasMounted"
+                @canvas-unmounted="handleDueCanvasUnmounted"
+              />
             </div>
           </template>
         </div>
@@ -1635,21 +1842,51 @@ function debounce(func, wait) {
   const originalReplaceState = history.replaceState;
 
   history.pushState = function () {
+    const previousPath = appState.previousRoute;
     const result = originalPushState.apply(this, arguments);
-    extensionLog("pushState called, triggering URL check.");
+    const currentPath = window.location.pathname;
+    appState.previousRoute = currentPath;
+    
+    extensionLog(`Route changed from ${previousPath} to ${currentPath}`);
+    
+    if (currentPath === statsRoute && previousPath !== statsRoute) {
+      extensionLog("Entering statistics page, resetting charts");
+      ChartManager.resetCharts();
+    }
+    
     setTimeout(runStatsLogic, 0);
     return result;
   };
 
   history.replaceState = function () {
+    const previousPath = appState.previousRoute;
     const result = originalReplaceState.apply(this, arguments);
-    extensionLog("replaceState called, triggering URL check.");
+    const currentPath = window.location.pathname;
+    appState.previousRoute = currentPath;
+    
+    extensionLog(`Route replaced from ${previousPath} to ${currentPath}`);
+    
+    if (currentPath === statsRoute && previousPath !== statsRoute) {
+      extensionLog("Entering statistics page, resetting charts");
+      ChartManager.resetCharts();
+    }
+    
     setTimeout(runStatsLogic, 0);
     return result;
   };
 
   window.addEventListener("popstate", () => {
-    extensionLog("popstate event detected, triggering URL check.");
+    const previousPath = appState.previousRoute;
+    const currentPath = window.location.pathname;
+    appState.previousRoute = currentPath;
+    
+    extensionLog(`Route popped from ${previousPath} to ${currentPath}`);
+    
+    if (currentPath === statsRoute && previousPath !== statsRoute) {
+      extensionLog("Entering statistics page, resetting charts");
+      ChartManager.resetCharts();
+    }
+    
     runStatsLogic();
   });
 
