@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Migaku Custom Stats
 // @namespace    http://tampermonkey.net/
-// @version      0.0.3
+// @version      0.0.4
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
 // @match        https://study.migaku.com
@@ -62,6 +62,8 @@
   const statsRoute = "/statistic";
   let migakuDB = null;
   let isProcessing = false;
+  let selectedLanguage = null;
+  let languageChangeObserver = null;
 
   function waitForElement(selector, timeout = 15000) {
     return new Promise((resolve, reject) => {
@@ -128,15 +130,78 @@
   async function runStatsLogic() {
     if (window.location.pathname !== statsRoute) {
       extensionLog("Not on stats route, skipping logic.");
+      if (languageChangeObserver) {
+        extensionLog("Disconnecting language change observer.");
+        languageChangeObserver.disconnect();
+        languageChangeObserver = null;
+      }
       return;
     }
 
-    if (isProcessing) {
-      extensionLog("Stats logic already running, skipping.");
+    const mainElement = await waitForElement(".MIGAKU-SRS[data-mgk-lang-selected]");
+    if (!mainElement) {
+      extensionLog("Migaku main element not found, skipping logic.");
+      if (languageChangeObserver) {
+        extensionLog("Migaku element lost, disconnecting language change observer.");
+        languageChangeObserver.disconnect();
+        languageChangeObserver = null;
+      }
       return;
     }
+
+    if (!languageChangeObserver) {
+      extensionLog("Setting up language change observer.");
+      languageChangeObserver = new MutationObserver((mutationsList) => {
+        for(const mutation of mutationsList) {
+          if (mutation.type === 'attributes' && mutation.attributeName === 'data-mgk-lang-selected') {
+            const newLanguage = mainElement.getAttribute('data-mgk-lang-selected');
+            extensionLog(`Language attribute changed to: ${newLanguage}`);
+            if (newLanguage && newLanguage !== selectedLanguage) {
+              extensionLog(`Detected language change from "${selectedLanguage}" to "${newLanguage}". Rerunning stats logic.`);
+              runStatsLogic();
+            } else if (!newLanguage && selectedLanguage) {
+              extensionLog(`Language attribute removed. Rerunning stats logic.`);
+              runStatsLogic();
+            }
+            break;
+          }
+        }
+      });
+      languageChangeObserver.observe(mainElement, { attributes: true, attributeFilter: ['data-mgk-lang-selected'] });
+      extensionLog("Language change observer attached.");
+    }
+
+    let currentLanguage;
+    try {
+      currentLanguage = mainElement.attributes.getNamedItem("data-mgk-lang-selected").value;
+      if (currentLanguage !== selectedLanguage) {
+        extensionLog("Processing for language:", currentLanguage);
+      } else {
+        extensionLog("Language unchanged, re-validating stats...");
+      }
+    } catch (error) {
+      extensionLog("Could not read selected language attribute.", error);
+      await displayCustomStats("Error: Could not determine selected language.").catch(e => extensionLog("Failed to display language error", e));
+      isProcessing = false;
+      return;
+    }
+
+    if (isProcessing && selectedLanguage === currentLanguage) {
+      extensionLog("Stats logic already running for the current language, skipping.");
+      return;
+    }
+
+    if (currentLanguage === selectedLanguage && isProcessing) {
+      extensionLog(`Skipping run: Language (${currentLanguage}) hasn't changed and processing is ongoing.`);
+      return;
+    }
+    if (currentLanguage === selectedLanguage && !isProcessing) {
+      extensionLog(`Language (${currentLanguage}) hasn't changed since last successful run. Checking if stats need refresh.`);
+    }
+
+    selectedLanguage = currentLanguage;
     isProcessing = true;
-    extensionLog("Running stats logic...");
+    extensionLog("Running stats logic for language:", selectedLanguage);
 
     try {
       const db = await initDB();
@@ -151,6 +216,7 @@
       ).catch((e) => extensionLog("Failed to display run error", e));
     } finally {
       isProcessing = false;
+      extensionLog("Stats logic processing finished for language:", selectedLanguage);
     }
   }
 
@@ -183,7 +249,7 @@
         displayCustomStats(`Error reading DB: ${event.target.error}`).catch(
           (e) => extensionLog("Failed to display DB read error", e)
         );
-        reject(event.target.error); // Reject the promise
+        reject(event.target.error);
       };
 
       getAllRequest.onerror = (event) => {
@@ -271,8 +337,8 @@
                         SUM(CASE WHEN knownStatus = 'UNKNOWN' THEN 1 ELSE 0 END) as unknown_count,
                         SUM(CASE WHEN knownStatus = 'IGNORE' THEN 1 ELSE 0 END) as ignored_count
                     FROM WordList
-                    WHERE language = 'ja' AND del = 0;`;
-            const wordResults = dbInstance.exec(wordQuery);
+                    WHERE language = ? AND del = 0;`;
+            const wordResults = dbInstance.exec(wordQuery, [selectedLanguage]);
             let wordValues = {};
             if (wordResults.length > 0 && wordResults[0].values.length > 0) {
               extensionLog("Word query results:", wordResults);
@@ -299,16 +365,18 @@
             );
 
             const dueQuery = `
-                    SELECT
-                        due,
-                        COUNT(*) as count
-                    FROM card
-                    WHERE due BETWEEN ? AND ?
-                    GROUP BY due
-                    ORDER BY due;
-                    `;
+              SELECT
+                due,
+                COUNT(*) as count
+              FROM card c
+              JOIN card_type ct ON c.cardTypeId = ct.id
+              WHERE ct.lang = ? AND c.due BETWEEN ? AND ?
+              GROUP BY due
+              ORDER BY due;
+            `;
 
             const dueResults = dbInstance.exec(dueQuery, [
+              selectedLanguage,
               todayDayNumber,
               endDayNumber,
             ]);
