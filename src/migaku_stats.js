@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Migaku Custom Stats
 // @namespace    http://tampermonkey.net/
-// @version      0.0.4
+// @version      0.0.5
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
 // @match        https://study.migaku.com
@@ -37,8 +37,39 @@
     }
     `;
 
-  const migakuTooltip = {
-    backgroundColor: "#2b2b60",
+  const themeConfigs = {
+    dark: {
+      textColor: "rgba(255, 255, 255, 1)",
+      tooltipBg: "#2b2b60",
+      gridColor: "rgba(255, 255, 255, 0.1)",
+      knownColor: "rgba(0, 199, 164, 1)",
+      learningColor: "rgba(0, 199, 164, 0.4)",
+      unknownColor: "rgba(255, 255, 255, 0.12)",
+      ignoredColor: "rgba(255, 255, 255, 0.35)",
+      barColor: "rgba(0, 199, 164, 1)",
+    },
+    light: {
+      textColor: "rgba(0, 0, 90, 1)",
+      tooltipBg: "rgba(255, 255, 255, 1)",
+      gridColor: "rgba(0, 0, 0, 0.1)",
+      knownColor: "rgba(0, 199, 164, 1)",
+      learningColor: "rgba(0, 199, 164, 0.4)",
+      unknownColor: "rgba(0, 0, 90, 0.07)",
+      ignoredColor: "rgba(0, 0, 90, 0.15)",
+      barColor: "rgba(0, 199, 164, 1)",
+    },
+  };
+
+  function getCurrentTheme() {
+    return document.documentElement.getAttribute("data-mgk-theme") || "dark";
+  }
+
+  function getThemeColors() {
+    const theme = getCurrentTheme();
+    return themeConfigs[theme] || themeConfigs.dark;
+  }
+
+  let migakuTooltip = {
     cornerRadius: 20,
     padding: 12,
     caretSize: 0,
@@ -64,6 +95,11 @@
   let isProcessing = false;
   let selectedLanguage = null;
   let languageChangeObserver = null;
+  let themeChangeObserver = null;
+  let wordChartInstance = null;
+  let dueChartInstance = null;
+  let lastWordStats = null;
+  let lastDueStats = null;
 
   function waitForElement(selector, timeout = 15000) {
     return new Promise((resolve, reject) => {
@@ -138,11 +174,15 @@
       return;
     }
 
-    const mainElement = await waitForElement(".MIGAKU-SRS[data-mgk-lang-selected]");
+    const mainElement = await waitForElement(
+      ".MIGAKU-SRS[data-mgk-lang-selected]"
+    );
     if (!mainElement) {
       extensionLog("Migaku main element not found, skipping logic.");
       if (languageChangeObserver) {
-        extensionLog("Migaku element lost, disconnecting language change observer.");
+        extensionLog(
+          "Migaku element lost, disconnecting language change observer."
+        );
         languageChangeObserver.disconnect();
         languageChangeObserver = null;
       }
@@ -152,28 +192,42 @@
     if (!languageChangeObserver) {
       extensionLog("Setting up language change observer.");
       languageChangeObserver = new MutationObserver((mutationsList) => {
-        for(const mutation of mutationsList) {
-          if (mutation.type === 'attributes' && mutation.attributeName === 'data-mgk-lang-selected') {
-            const newLanguage = mainElement.getAttribute('data-mgk-lang-selected');
+        for (const mutation of mutationsList) {
+          if (
+            mutation.type === "attributes" &&
+            mutation.attributeName === "data-mgk-lang-selected"
+          ) {
+            const newLanguage = mainElement.getAttribute(
+              "data-mgk-lang-selected"
+            );
             extensionLog(`Language attribute changed to: ${newLanguage}`);
             if (newLanguage && newLanguage !== selectedLanguage) {
-              extensionLog(`Detected language change from "${selectedLanguage}" to "${newLanguage}". Rerunning stats logic.`);
+              extensionLog(
+                `Detected language change from "${selectedLanguage}" to "${newLanguage}". Rerunning stats logic.`
+              );
               runStatsLogic();
             } else if (!newLanguage && selectedLanguage) {
-              extensionLog(`Language attribute removed. Rerunning stats logic.`);
+              extensionLog(
+                `Language attribute removed. Rerunning stats logic.`
+              );
               runStatsLogic();
             }
             break;
           }
         }
       });
-      languageChangeObserver.observe(mainElement, { attributes: true, attributeFilter: ['data-mgk-lang-selected'] });
+      languageChangeObserver.observe(mainElement, {
+        attributes: true,
+        attributeFilter: ["data-mgk-lang-selected"],
+      });
       extensionLog("Language change observer attached.");
     }
 
     let currentLanguage;
     try {
-      currentLanguage = mainElement.attributes.getNamedItem("data-mgk-lang-selected").value;
+      currentLanguage = mainElement.attributes.getNamedItem(
+        "data-mgk-lang-selected"
+      ).value;
       if (currentLanguage !== selectedLanguage) {
         extensionLog("Processing for language:", currentLanguage);
       } else {
@@ -181,22 +235,32 @@
       }
     } catch (error) {
       extensionLog("Could not read selected language attribute.", error);
-      await displayCustomStats("Error: Could not determine selected language.").catch(e => extensionLog("Failed to display language error", e));
+      lastWordStats = null;
+      lastDueStats = null;
+      await displayCustomStats(
+        "Error: Could not determine selected language."
+      ).catch((e) => extensionLog("Failed to display language error", e));
       isProcessing = false;
       return;
     }
 
     if (isProcessing && selectedLanguage === currentLanguage) {
-      extensionLog("Stats logic already running for the current language, skipping.");
+      extensionLog(
+        "Stats logic already running for the current language, skipping."
+      );
       return;
     }
 
     if (currentLanguage === selectedLanguage && isProcessing) {
-      extensionLog(`Skipping run: Language (${currentLanguage}) hasn't changed and processing is ongoing.`);
+      extensionLog(
+        `Skipping run: Language (${currentLanguage}) hasn't changed and processing is ongoing.`
+      );
       return;
     }
     if (currentLanguage === selectedLanguage && !isProcessing) {
-      extensionLog(`Language (${currentLanguage}) hasn't changed since last successful run. Checking if stats need refresh.`);
+      extensionLog(
+        `Language (${currentLanguage}) hasn't changed since last successful run. Checking if stats need refresh.`
+      );
     }
 
     selectedLanguage = currentLanguage;
@@ -211,12 +275,17 @@
       await accessMigakuData(db);
     } catch (error) {
       extensionLog("Error in runStatsLogic:", error);
+      lastWordStats = null;
+      lastDueStats = null;
       await displayCustomStats(
         `Error running stats logic: ${error.message}`
       ).catch((e) => extensionLog("Failed to display run error", e));
     } finally {
       isProcessing = false;
-      extensionLog("Stats logic processing finished for language:", selectedLanguage);
+      extensionLog(
+        "Stats logic processing finished for language:",
+        selectedLanguage
+      );
     }
   }
 
@@ -339,18 +408,17 @@
                     FROM WordList
                     WHERE language = ? AND del = 0;`;
             const wordResults = dbInstance.exec(wordQuery, [selectedLanguage]);
-            let wordValues = {};
+            let wordValues = null;
             if (wordResults.length > 0 && wordResults[0].values.length > 0) {
               extensionLog("Word query results:", wordResults);
               const numberOfResults = wordResults[0].values[0].length;
+              wordValues = {};
               for (let i = 0; i < numberOfResults; i++) {
                 wordValues[wordResults[0].columns[i]] =
                   wordResults[0].values[0][i];
               }
             } else {
-              extensionLog(
-                "Word query executed, but returned no result sets or rows."
-              );
+              extensionLog("Word query returned no results.");
               wordValues = null;
             }
 
@@ -380,7 +448,7 @@
               todayDayNumber,
               endDayNumber,
             ]);
-            let dueData = { labels: [], counts: [] };
+            let dueData = null;
 
             if (dueResults.length > 0 && dueResults[0].values.length > 0) {
               extensionLog("Due cards query results:", dueResults[0]);
@@ -409,9 +477,7 @@
               }
               dueData = { labels: dateLabels, counts: dateCounts };
             } else {
-              extensionLog(
-                "Due cards query executed, but returned no results or rows for the next 30 days."
-              );
+              extensionLog("Due cards query returned no results.");
               const dateLabels = [];
               const dateCounts = [];
               const tempDate = new Date(today);
@@ -427,34 +493,27 @@
               dueData = { labels: dateLabels, counts: dateCounts };
             }
 
-            if (wordValues || dueData) {
+            lastWordStats = wordValues;
+            lastDueStats = dueData;
+
+            if (wordValues || (dueData && dueData.labels.length > 0)) {
               await displayCustomStats({
                 wordStats: wordValues,
                 dueStats: dueData,
-              }).catch((e) =>
-                extensionLog("Failed to display custom stats", e)
-              );
+              });
             } else {
               extensionLog(
-                "Both queries returned no data. Nothing to display."
+                "Both queries returned no usable data. Displaying message."
               );
               await displayCustomStats(
-                "Error",
-                "Could not retrieve word or due card data."
-              ).catch((e) =>
-                extensionLog("Failed to display query error state", e)
+                "Info: No word or due card data found for this language."
               );
             }
           } catch (error) {
-            extensionLog(
-              "Error during data processing or SQL execution:",
-              error
-            );
-            await displayCustomStats(
-              `Processing error: ${error.message}`
-            ).catch((e) =>
-              extensionLog("Failed to display processing error", e)
-            );
+            extensionLog("Error during SQL execution/processing:", error);
+            lastWordStats = null;
+            lastDueStats = null;
+            await displayCustomStats(`Processing error: ${error.message}`);
           } finally {
             if (dbInstance) {
               extensionLog("Closing SQL.js database instance.");
@@ -464,9 +523,11 @@
           }
         } catch (outerError) {
           extensionLog("Error in getAllRequest.onsuccess:", outerError);
+          lastWordStats = null;
+          lastDueStats = null;
           await displayCustomStats(
             `Internal script error: ${outerError.message}`
-          ).catch((e) => extensionLog("Failed to display internal error", e));
+          );
           resolve();
         }
       };
@@ -475,6 +536,10 @@
 
   async function displayCustomStats(data) {
     extensionLog("Preparing to display stats...");
+    const themeColors = getThemeColors();
+    migakuTooltip.backgroundColor = themeColors.tooltipBg;
+    migakuTooltip.titleColor = themeColors.textColor;
+    migakuTooltip.bodyColor = themeColors.textColor;
 
     const statisticsDiv = await waitForElement(statisticsElementSelector);
     if (!statisticsDiv) {
@@ -504,29 +569,48 @@
     const isError = typeof data === "string" || data instanceof Error;
     let wordStats = null;
     let dueStats = null;
-    let errorMessage = "An unknown error occurred.";
+    let message = "";
 
     if (isError) {
-      errorMessage = data instanceof Error ? data.message : data;
-      extensionLog(`Displaying error: ${errorMessage}`);
-    } else {
+      message = data instanceof Error ? `Error: ${data.message}` : data;
+      extensionLog(`Displaying message: ${message}`);
+      if (!(data && data.hasOwnProperty("wordStats"))) {
+        lastWordStats = null;
+        lastDueStats = null;
+      }
+    } else if (data && (data.wordStats || data.dueStats)) {
       wordStats = data.wordStats;
       dueStats = data.dueStats;
-      extensionLog("Received data:", data);
+      if (data !== lastWordStats) {
+        lastWordStats = wordStats;
+        lastDueStats = dueStats;
+      }
+      extensionLog("Displaying data:", { wordStats, dueStats });
+    } else {
+      message = "Loading stats or no data available...";
+      extensionLog(message);
+      lastWordStats = null;
+      lastDueStats = null;
     }
 
     const statsDiv = document.createElement("div");
-    statsDiv.id = isError ? "migaku-custom-stats-error" : "migaku-custom-stats";
+    statsDiv.id =
+      isError || message
+        ? "migaku-custom-stats-message"
+        : "migaku-custom-stats";
     statsDiv.classList.add("MCS__container");
 
-    if (isError) {
+    if (isError || message) {
       statsDiv.classList.add("UiCard", "-lesson", "Statistic__card");
+      const title = isError
+        ? "Migaku Custom Stats - Error"
+        : "Migaku Custom Stats - Info";
       statsDiv.innerHTML = `
             <div ${componentHash} class="Statistic__card__header">
-                <h3 ${componentHash} class="UiTypo UiTypo__heading3 -heading">Migaku Custom Stats - Error</h3>
+                <h3 ${componentHash} class="UiTypo UiTypo__heading3 -heading">${title}</h3>
             </div>
-            <div ${componentHash} class="MCS__error">
-                <span ${componentHash} class="UiTypo UiTypo__body1">${errorMessage}</span>
+            <div ${componentHash} class="MCS__message">
+                <span ${componentHash} class="UiTypo UiTypo__body1">${message}</span>
             </div>
         `;
     } else {
@@ -609,8 +693,7 @@
     statsContainer.appendChild(statsDiv);
     extensionLog("Successfully appended/updated custom stats element(s).");
 
-    if (!isError) {
-      // Initialize Doughnut Chart
+    if (!isError && !message) {
       if (wordStats) {
         const doughnutChartCanvas = document.getElementById(
           "mcsWordDoughnutChart"
@@ -618,9 +701,12 @@
         if (doughnutChartCanvas) {
           const doughnutChartCtx = doughnutChartCanvas.getContext("2d");
           if (doughnutChartCtx) {
-            extensionLog("Creating doughnut chart...");
+            extensionLog(
+              "Creating doughnut chart with theme:",
+              getCurrentTheme()
+            );
             try {
-              new Chart(doughnutChartCtx, {
+              wordChartInstance = new Chart(doughnutChartCtx, {
                 type: "doughnut",
                 data: {
                   labels: ["Known", "Learning", "Unknown", "Ignored"],
@@ -634,10 +720,10 @@
                         wordStats.ignored_count || 0,
                       ],
                       backgroundColor: [
-                        "rgba(0, 199, 164, 1)", // Known
-                        "rgba(0, 199, 164, 0.4)", // Learning
-                        "rgba(255, 255, 255, 0.12)", // Unknown
-                        "rgba(255, 255, 255, 0.35)", // Ignored
+                        themeColors.knownColor,
+                        themeColors.learningColor,
+                        themeColors.unknownColor,
+                        themeColors.ignoredColor,
                       ],
                       borderWidth: 0,
                     },
@@ -651,12 +737,10 @@
                       position: "right",
                       labels: {
                         boxWidth: 20,
-                        color: "rgba(255, 255, 255, 1)",
+                        color: themeColors.textColor,
                       },
                     },
-                    title: {
-                      display: false,
-                    },
+                    title: { display: false },
                     tooltip: {
                       callbacks: {
                         label: function (context) {
@@ -702,18 +786,17 @@
           }
         }
       } else {
-        extensionLog("No word stats data to create doughnut chart.");
+        extensionLog("No word stats data for doughnut chart.");
       }
 
-      // Initialize Bar Chart
       if (dueStats && dueStats.labels && dueStats.counts) {
         const barChartCanvas = document.getElementById("mcsDueBarChart");
         if (barChartCanvas) {
           const barChartCtx = barChartCanvas.getContext("2d");
           if (barChartCtx) {
-            extensionLog("Creating bar chart for due cards...");
+            extensionLog("Creating bar chart with theme:", getCurrentTheme());
             try {
-              new Chart(barChartCtx, {
+              dueChartInstance = new Chart(barChartCtx, {
                 type: "bar",
                 data: {
                   labels: dueStats.labels,
@@ -721,7 +804,7 @@
                     {
                       label: "Cards Due",
                       data: dueStats.counts,
-                      backgroundColor: "rgba(0, 199, 164, 1)",
+                      backgroundColor: themeColors.barColor,
                       borderWidth: 0,
                       borderRadius: 4,
                     },
@@ -734,31 +817,25 @@
                     y: {
                       beginAtZero: true,
                       ticks: {
-                        color: "rgba(255, 255, 255, 1)",
+                        color: themeColors.textColor,
                         precision: 0,
                       },
                       grid: {
-                        color: "rgba(255, 255, 255, 0.1)",
+                        color: themeColors.gridColor,
                       },
                     },
                     x: {
                       ticks: {
-                        color: "rgba(255, 255, 255, 1)",
+                        color: themeColors.textColor,
                         maxRotation: 45,
                         minRotation: 45,
                       },
-                      grid: {
-                        display: false,
-                      },
+                      grid: { display: false },
                     },
                   },
                   plugins: {
-                    legend: {
-                      display: false,
-                    },
-                    title: {
-                      display: false,
-                    },
+                    legend: { display: false },
+                    title: { display: false },
                     tooltip: {
                       callbacks: {
                         label: function (context) {
@@ -799,9 +876,57 @@
           }
         }
       } else {
-        extensionLog("No due stats data to create bar chart.");
+        extensionLog("No due stats data for bar chart.");
       }
     }
+  }
+
+  function setupThemeObserver() {
+    if (themeChangeObserver) {
+      extensionLog("Theme observer already exists.");
+      return;
+    }
+    const htmlElement = document.documentElement;
+    if (!htmlElement) {
+      extensionLog("HTML element not found, cannot set up theme observer.");
+      return;
+    }
+
+    extensionLog("Setting up theme change observer.");
+    themeChangeObserver = new MutationObserver((mutationsList) => {
+      for (const mutation of mutationsList) {
+        if (
+          mutation.type === "attributes" &&
+          mutation.attributeName === "data-mgk-theme"
+        ) {
+          const newTheme = htmlElement.getAttribute("data-mgk-theme") || "dark";
+          extensionLog(
+            `Theme attribute changed to: ${newTheme}. Refreshing charts.`
+          );
+          if (lastWordStats || lastDueStats) {
+            displayCustomStats({
+              wordStats: lastWordStats,
+              dueStats: lastDueStats,
+            }).catch((e) =>
+              extensionLog("Error refreshing charts on theme change:", e)
+            );
+          } else {
+            extensionLog(
+              "No cached data available to refresh charts for new theme."
+            );
+          }
+          break;
+        }
+      }
+    });
+
+    themeChangeObserver.observe(htmlElement, {
+      attributes: true,
+      attributeFilter: ["data-mgk-theme"],
+    });
+    extensionLog(
+      `Initial theme detected: ${getCurrentTheme()}. Observer attached.`
+    );
   }
 
   const originalPushState = history.pushState;
@@ -828,4 +953,5 @@
 
   extensionLog("Migaku Custom Stats Script Initializing...");
   runStatsLogic();
+  setupThemeObserver();
 })();
