@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Migaku Custom Stats
 // @namespace    http://tampermonkey.net/
-// @version      0.1.6
+// @version      0.1.7
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
 // @match        https://study.migaku.com
@@ -302,7 +302,7 @@ function debounce(func, wait) {
         left: 0;
     }
 
-    .MCS__percentile-selector {
+    .MCS__header-selector {
       margin-left: auto;
     }
     .Statistic__card__header {
@@ -1587,10 +1587,12 @@ function debounce(func, wait) {
    * @param {string} language - Selected language
    * @param {string} deckId - Selected deck ID
    * @param {Function} logFn - Logging function
+   * @param {string} percentileId - Percentile ID (default: "intervalPercentile95")
    * @returns {Object|null} - Interval statistics or null if failed
    */
-  function fetchIntervalStats(dbInstance, language, deckId, logFn, percentile = 95) {
+  function fetchIntervalStats(dbInstance, language, deckId, logFn, percentileId = "intervalPercentile95") {
     try {
+      const percentile = percentileId.replace("intervalPercentile", "");
       let intervalQuery = SQL_QUERIES.INTERVAL_QUERY;
       let intervalQueryParams = [language];
       
@@ -1662,21 +1664,24 @@ function debounce(func, wait) {
    * @param {string} language - Selected language
    * @param {string} deckId - Selected deck ID
    * @param {Function} logFn - Logging function
+   * @param {string} periodId - Period ID (default: "reviewHistory1")
    * @returns {Object|null} - Review history statistics or null if failed
    */
-  function fetchReviewHistory(dbInstance, language, deckId, logFn) {
+  function fetchReviewHistory(dbInstance, language, deckId, logFn, periodId = "reviewHistory1") {
     try {
+      const period = periodId.replace("reviewHistory", "");
       const startDate = new Date(CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY);
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const todayDayNumber = Math.floor((today - startDate) / (1000 * 60 * 60 * 24));
       logFn(`Today's day number: ${todayDayNumber}`);
-      const thirtyDaysAgoDayNumber = todayDayNumber - 30;
+      const periodDays = period * 30;
+      const periodDaysAgoDayNumber = todayDayNumber - periodDays;
       
-      logFn(`Fetching review history since day ${thirtyDaysAgoDayNumber} (${todayDayNumber - thirtyDaysAgoDayNumber} days ago)`);
+      logFn(`Fetching review history since day ${periodDaysAgoDayNumber} (${periodDays} days ago)`);
       
       let reviewQuery = SQL_QUERIES.REVIEW_HISTORY_QUERY;
-      let reviewQueryParams = [language, thirtyDaysAgoDayNumber];
+      let reviewQueryParams = [language, periodDaysAgoDayNumber];
       
       if (deckId !== SETTINGS.DEFAULT_DECK_ID) {
         reviewQuery = reviewQuery.replace(
@@ -1692,7 +1697,7 @@ function debounce(func, wait) {
       const dateCounts = [];
       const dayMap = new Map();
       
-      for (let i = 0; i < 30; i++) {
+      for (let i = 0; i < periodDays; i++) {
         const dayNumber = todayDayNumber - i;
         const date = new Date(startDate);
         date.setDate(date.getDate() + dayNumber);
@@ -1704,7 +1709,7 @@ function debounce(func, wait) {
         
         dateLabels.unshift(displayDate);
         dateCounts.unshift(0);
-        dayMap.set(dayNumber, { index: 29 - i, displayDate });
+        dayMap.set(dayNumber, { index: periodDays - 1 - i, displayDate });
       }
       
       if (reviewResults.length > 0 && reviewResults[0].values.length > 0) {
@@ -1736,20 +1741,23 @@ function debounce(func, wait) {
    * @param {string} language - Selected language
    * @param {string} deckId - Selected deck ID
    * @param {Function} logFn - Logging function
+   * @param {string} periodId - Period ID (default: "studyStats1")
    * @returns {Object|null} - Study statistics or null if failed
    */
-  function fetchStudyStats(dbInstance, language, deckId, logFn) {
+  function fetchStudyStats(dbInstance, language, deckId, logFn, periodId = "studyStats1") {
     try {
+      const period = periodId.replace("studyStats", "");
       const startDate = new Date(CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY);
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const todayDayNumber = Math.floor((today - startDate) / (1000 * 60 * 60 * 24));
-      const yearAgoDayNumber = todayDayNumber - 365;
+      const periodDays = period * 30;
+      const startDayNumber = todayDayNumber - periodDays;
       
-      logFn(`Fetching study stats since day ${yearAgoDayNumber} (${todayDayNumber - yearAgoDayNumber} days ago)`);
+      logFn(`Fetching study stats since day ${startDayNumber} (${periodDays} days ago)`);
       
       let studyQuery = SQL_QUERIES.STUDY_STATS_QUERY;
-      let studyQueryParams = [language, yearAgoDayNumber];
+      let studyQueryParams = [language, startDayNumber];
       
       if (deckId !== SETTINGS.DEFAULT_DECK_ID) {
         studyQuery = studyQuery.replace(
@@ -1768,13 +1776,14 @@ function debounce(func, wait) {
         const total_reviews = studyResults[0].values[0][1] || 0;
         const avg_reviews_per_day = studyResults[0].values[0][2] || 0;
         
-        const daysStudiedPercent = Math.round((days_studied / 365) * 100);
+        const daysStudiedPercent = Math.round((days_studied / (periodDays + 1)) * 100);
         
         return {
           days_studied,
           days_studied_percent: daysStudiedPercent,
           total_reviews,
-          avg_reviews_per_day
+          avg_reviews_per_day,
+          period_days: periodDays
         };
       } else {
         logFn("Study stats query returned no results");
@@ -1782,7 +1791,8 @@ function debounce(func, wait) {
           days_studied: 0,
           days_studied_percent: 0,
           total_reviews: 0,
-          avg_reviews_per_day: 0
+          avg_reviews_per_day: 0,
+          period_days: periodDays
         };
       }
     } catch (error) {
@@ -1990,21 +2000,24 @@ function debounce(func, wait) {
               dbInstance, 
               appState.selectedLanguage, 
               appState.selectedDeckId, 
-              extensionLog
+              extensionLog,
+              vueInstance ? vueInstance.selectedPercentile : "intervalPercentile95"
             );
             
             const reviewHistoryData = fetchReviewHistory(
               dbInstance,
               appState.selectedLanguage,
               appState.selectedDeckId,
-              extensionLog
+              extensionLog,
+              vueInstance ? vueInstance.selectedPeriodReviewHistory : "reviewHistory1"
             );
             
             const studyStatsData = fetchStudyStats(
               dbInstance,
               appState.selectedLanguage,
               appState.selectedDeckId,
-              extensionLog
+              extensionLog,
+              vueInstance ? vueInstance.selectedPeriodStudyStats : "studyStats1"
             );
 
             dbState.lastWordStats = wordValues;
@@ -2432,12 +2445,12 @@ function debounce(func, wait) {
     },
     data() {
       return {
-        selectedPercentile: 95,
+        selectedPercentile: "intervalPercentile95",
         percentileOptions: [
-          { id: 50, name: '50th' },
-          { id: 75, name: '75th' },
-          { id: 95, name: '95th' },
-          { id: 100, name: '100th' }
+          { id: "intervalPercentile50", name: '50th' },
+          { id: "intervalPercentile75", name: '75th' },
+          { id: "intervalPercentile95", name: '95th' },
+          { id: "intervalPercentile100", name: '100th' }
         ]
       };
     },
@@ -2468,7 +2481,7 @@ function debounce(func, wait) {
       <div v-if="intervalStats && intervalStats.labels && intervalStats.counts" v-bind:[componentHash]="true" class="MCS__interval-stats-card">
         <div v-bind:[componentHash]="true" class="Statistic__card__header">
           <h3 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading3 -heading">Review Intervals</h3>
-          <div class="MCS__percentile-selector">
+          <div class="MCS__header-selector">
             <dropdown-menu
               :items="percentileOptions"
               :modelValue="selectedPercentile"
@@ -2494,7 +2507,7 @@ function debounce(func, wait) {
       <div v-else v-bind:[componentHash]="true" class="MCS__interval-stats-card">
         <div v-bind:[componentHash]="true" class="Statistic__card__header">
           <h3 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading3 -heading">Review Intervals</h3>
-          <div class="MCS__percentile-selector">
+          <div class="MCS__header-selector">
             <dropdown-menu
               :items="percentileOptions"
               :modelValue="selectedPercentile"
@@ -2519,27 +2532,83 @@ function debounce(func, wait) {
   };
   
   const StudyStatsCard = {
+    components: {
+      DropdownMenu
+    },
     props: {
       studyStats: Object,
       componentHash: String
+    },
+    data() {
+      return {
+        selectedPeriod: "studyStats1",
+        periodOptions: [
+          { id: "studyStats1", name: '1 Month' },
+          { id: "studyStats2", name: '2 Months' },
+          { id: "studyStats3", name: '3 Months' },
+          { id: "studyStats6", name: '6 Months' },
+          { id: "studyStats12", name: '12 Months' }
+        ]
+      };
+    },
+    methods: {
+      handlePeriodChange(period) {
+        this.selectedPeriod = period;
+        this.$emit('period-change', period);
+      }
+    },
+    mounted() {
+      this.$nextTick(() => {
+        if (this.$refs.canvas) {
+          this.$emit('canvas-mounted', this.$refs.canvas);
+        }
+      });
+    },
+    updated() {
+      this.$nextTick(() => {
+        if (this.$refs.canvas) {
+          this.$emit('canvas-mounted', this.$refs.canvas);
+        }
+      });
+    },
+    beforeUnmount() {
+      this.$emit('canvas-unmounted');
     },
     template: `
       <div v-if="studyStats" v-bind:[componentHash]="true" class="MCS__study-stats-card">
         <div v-bind:[componentHash]="true" class="Statistic__card__header">
           <h3 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading3 -heading">Study Statistics</h3>
+          <div class="MCS__header-selector">
+            <dropdown-menu
+              :items="periodOptions"
+              :modelValue="selectedPeriod"
+              @update:modelValue="handlePeriodChange"
+              item-key="id"
+              item-label="name"
+              placeholder="Select Period"
+              width="180"
+              :component-hash="componentHash"
+            >
+              <template #trigger="{ selectedLabel }">
+                <span class="multiselect__single">
+                  <span class="UiTypo UiTypo__caption -no-wrap multiselect__single__text">Last {{ selectedLabel }}</span>
+                </span>
+              </template>
+            </dropdown-menu>
+          </div>
         </div>
         <div v-bind:[componentHash]="true" class="MCS__study-stats">
           <div v-bind:[componentHash]="true" class="MCS__stat-box">
             <div v-bind:[componentHash]="true" class="MCS__stat-value">{{ studyStats.days_studied_percent }}%</div>
-            <div v-bind:[componentHash]="true" class="MCS__stat-label">Days Studied (Last Year)</div>
+            <div v-bind:[componentHash]="true" class="MCS__stat-label">% of days studied</div>
           </div>
           <div v-bind:[componentHash]="true" class="MCS__stat-box">
             <div v-bind:[componentHash]="true" class="MCS__stat-value">{{ studyStats.total_reviews.toLocaleString() }}</div>
-            <div v-bind:[componentHash]="true" class="MCS__stat-label">Total Reviews</div>
+            <div v-bind:[componentHash]="true" class="MCS__stat-label">Total reviews</div>
           </div>
           <div v-bind:[componentHash]="true" class="MCS__stat-box">
             <div v-bind:[componentHash]="true" class="MCS__stat-value">{{ studyStats.avg_reviews_per_day }}</div>
-            <div v-bind:[componentHash]="true" class="MCS__stat-label">Avg. Reviews per Study Day</div>
+            <div v-bind:[componentHash]="true" class="MCS__stat-label">Avg. reviews per study day</div>
           </div>
         </div>
       </div>
@@ -2553,10 +2622,43 @@ function debounce(func, wait) {
   };
   
   const ReviewHistoryCard = {
+    components: {
+      DropdownMenu
+    },
     props: {
       reviewStats: Object,
       componentHash: String,
-      chartRef: String
+      chartRef: String,
+      selectedPeriod: {
+        type: String,
+        default: "reviewHistory1"
+      }
+    },
+    data() {
+      return {
+        periodOptions: [
+          { id: "reviewHistory1", name: '1 Month' },
+          { id: "reviewHistory2", name: '2 Months' },
+          { id: "reviewHistory3", name: '3 Months' },
+          { id: "reviewHistory6", name: '6 Months' },
+          { id: "reviewHistory12", name: '12 Months' }
+        ]
+      };
+    },
+    computed: {
+      currentPeriod: {
+        get() {
+          return this.selectedPeriod;
+        },
+        set(value) {
+          this.$emit('period-change', value);
+        }
+      }
+    },
+    methods: {
+      handlePeriodChange(period) {
+        this.currentPeriod = period;
+      }
     },
     mounted() {
       this.$nextTick(() => {
@@ -2578,7 +2680,25 @@ function debounce(func, wait) {
     template: `
       <div v-if="reviewStats && reviewStats.labels && reviewStats.counts" v-bind:[componentHash]="true" class="MCS__review-history-card">
         <div v-bind:[componentHash]="true" class="Statistic__card__header">
-          <h3 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading3 -heading">Review History (Last 30 Days)</h3>
+          <h3 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading3 -heading">Review History</h3>
+          <div class="MCS__header-selector">
+            <dropdown-menu
+              :items="periodOptions"
+              :modelValue="currentPeriod"
+              @update:modelValue="handlePeriodChange"
+              item-key="id"
+              item-label="name"
+              placeholder="Select Period"
+              width="180"
+              :component-hash="componentHash"
+            >
+              <template #trigger="{ selectedLabel }">
+                <span class="multiselect__single">
+                  <span class="UiTypo UiTypo__caption -no-wrap multiselect__single__text">Last {{ selectedLabel }}</span>
+                </span>
+              </template>
+            </dropdown-menu>
+          </div>
         </div>
         <div v-bind:[componentHash]="true" class="MCS__reviewchart">
           <canvas ref="canvas"></canvas>
@@ -2586,7 +2706,25 @@ function debounce(func, wait) {
       </div>
       <div v-else v-bind:[componentHash]="true" class="MCS__review-history-card">
         <div v-bind:[componentHash]="true" class="Statistic__card__header">
-          <h3 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading3 -heading">Review History (Last 30 Days)</h3>
+          <h3 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading3 -heading">Review History</h3>
+          <div class="MCS__header-selector">
+            <dropdown-menu
+              :items="periodOptions"
+              :modelValue="currentPeriod"
+              @update:modelValue="handlePeriodChange"
+              item-key="id"
+              item-label="name"
+              placeholder="Select Period"
+              width="180"
+              :component-hash="componentHash"
+            >
+              <template #trigger="{ selectedLabel }">
+                <span class="multiselect__single">
+                  <span class="UiTypo UiTypo__caption -no-wrap multiselect__single__text">Last {{ selectedLabel }}</span>
+                </span>
+              </template>
+            </dropdown-menu>
+          </div>
         </div>
         <p v-bind:[componentHash]="true" class="UiTypo UiTypo__body2">Could not load review history data.</p>
       </div>
@@ -2683,7 +2821,9 @@ function debounce(func, wait) {
           availableDecks: dbState.availableDecks,
           selectedDeckId: appState.selectedDeckId,
           selectedLanguage: appState.selectedLanguage,
-          selectedPercentile: 95,
+          selectedPercentile: "intervalPercentile95",
+          selectedPeriodStudyStats: "studyStats1",
+          selectedPeriodReviewHistory: "reviewHistory1",
           componentHash,
           currentTheme: getCurrentTheme(),
           wordChartRendered: false,
@@ -2876,61 +3016,23 @@ function debounce(func, wait) {
           }
           
           this.selectedPercentile = percentile;
-          this.intervalChartRendered = false;
-          
-          if (dbState.lastIntervalStats) {
-            const recalculateIntervalStats = (rawStats, percentile) => {
-              extensionLog(`Recalculating intervals with ${percentile}th percentile`);
-              
-              const intervalMap = new Map();
-              let maxInterval = 0;
-              let totalCards = 0;
-              
-              for (let i = 0; i < rawStats.labels.length; i++) {
-                const label = rawStats.labels[i];
-                const count = rawStats.counts[i];
-                const interval = parseInt(label.split(' ')[0]);
-                
-                intervalMap.set(interval, count);
-                maxInterval = Math.max(maxInterval, interval);
-                totalCards += count;
-              }
-              
-              const cutoffPercentile = percentile / 100;
-              let cumulativeCount = 0;
-              let cutoffInterval = maxInterval;
-              
-              const sortedIntervals = Array.from(intervalMap.keys()).sort((a, b) => a - b);
-              
-              for (const interval of sortedIntervals) {
-                cumulativeCount += intervalMap.get(interval);
-                const percentileValue = cumulativeCount / totalCards;
-                
-                if (percentileValue >= cutoffPercentile) {
-                  cutoffInterval = interval;
-                  break;
-                }
-              }
-              
-              extensionLog(`Excluding intervals beyond ${cutoffInterval} days (${percentile}th percentile)`);
-              
-              const intervalLabels = [];
-              const intervalCounts = [];
-              
-              for (let i = 1; i <= cutoffInterval; i++) {
-                let label = i === 1 ? "1 day" : `${i} days`;
-                
-                intervalLabels.push(label);
-                intervalCounts.push(intervalMap.has(i) ? intervalMap.get(i) : 0);
-              }
-              
-              return { labels: intervalLabels, counts: intervalCounts };
-            };
-            
-            const fullIntervalData = dbState.lastIntervalStats;
-            this.intervalStats = recalculateIntervalStats(fullIntervalData, percentile);
-            this.updateCharts();
+          runFilteredStatsQuery(this);
+        },
+        handleStudyStatsPeriodChange(period) {
+          if (this.selectedPeriodStudyStats === period) {
+            return;
           }
+          
+          this.selectedPeriodStudyStats = period;
+          runFilteredStatsQuery(this);
+        },
+        handleReviewHistoryPeriodChange(period) {
+          if (this.selectedPeriodReviewHistory === period) {
+            return;
+          }
+          
+          this.selectedPeriodReviewHistory = period;
+          runFilteredStatsQuery(this);
         }
       },
       watch: {
@@ -3056,15 +3158,18 @@ function debounce(func, wait) {
               <study-stats-card 
                 :study-stats="studyStats" 
                 :component-hash="componentHash"
+                @period-change="handleStudyStatsPeriodChange"
               />
               
               <!-- Review History -->
               <review-history-card 
-                :review-stats="reviewStats" 
+                :review-stats="reviewStats"
+                :selectedPeriod="selectedPeriodReviewHistory" 
                 :component-hash="componentHash" 
                 chart-ref="reviewChart"
                 @canvas-mounted="handleReviewCanvasMounted"
                 @canvas-unmounted="handleReviewCanvasUnmounted"
+                @period-change="handleReviewHistoryPeriodChange"
               />
             </div>
           </template>
