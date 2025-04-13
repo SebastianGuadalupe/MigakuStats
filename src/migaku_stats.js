@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Migaku Custom Stats
 // @namespace    http://tampermonkey.net/
-// @version      0.1.7
+// @version      0.1.8
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
 // @match        https://study.migaku.com
@@ -814,17 +814,24 @@ function debounce(func, wait) {
         if (this.dueChartInstance) {
           logFn("Updating existing due chart with new data");
           
+          const newCumulativeCounts = [];
+          let newRunningSum = 0;
+          for (let i = 0; i < dueStats.counts.length; i++) {
+            newRunningSum += dueStats.counts[i];
+            newCumulativeCounts.push(newRunningSum);
+          }
+          
           this.dueChartInstance.data.labels = dueStats.labels;
           this.dueChartInstance.data.datasets[0].data = dueStats.counts;
           
           if (this.dueChartInstance.data.datasets.length > 1) {
-            this.dueChartInstance.data.datasets[1].data = cumulativeCounts;
+            this.dueChartInstance.data.datasets[1].data = newCumulativeCounts;
             this.dueChartInstance.data.datasets[1].borderColor = themeColors.unknownColor;
             this.dueChartInstance.data.datasets[1].backgroundColor = themeColors.unknownColor;
           } else {
             this.dueChartInstance.data.datasets.push({
               label: 'Cumulative Cards',
-              data: cumulativeCounts,
+              data: newCumulativeCounts,
               type: 'line',
               borderColor: themeColors.unknownColor,
               backgroundColor: themeColors.unknownColor,
@@ -854,6 +861,24 @@ function debounce(func, wait) {
               };
             }
           }
+          
+          const finalTotal = newCumulativeCounts[newCumulativeCounts.length - 1];
+          this.dueChartInstance.options.plugins.tooltip.callbacks.label = function(context) {
+            const datasetLabel = context.dataset.label || '';
+            const value = context.parsed.y;
+            
+            if (datasetLabel === 'Cards Due' && value > 0) {
+              const percentage = finalTotal > 0 ? ((value / finalTotal) * 100).toFixed(1) : '0.0';
+              return `${datasetLabel}: ${value} (${percentage}%)`;
+            }
+            
+            if (datasetLabel === 'Cumulative Cards') {
+              const percentage = finalTotal > 0 ? ((value / finalTotal) * 100).toFixed(1) : '0.0';
+              return `${datasetLabel}: ${value} (${percentage}%)`;
+            }
+            
+            return `${datasetLabel}: ${value}`;
+          };
           
           this.dueChartInstance.data.datasets[0].backgroundColor = themeColors.barColor;
           
@@ -1514,15 +1539,26 @@ function debounce(func, wait) {
    * @param {string} language - Selected language
    * @param {string} deckId - Selected deck ID
    * @param {Function} logFn - Logging function
+   * @param {string} dueStatsPeriod - Period ID (default: "dueStats1")
    * @returns {Object|null} - Due cards statistics or null if failed
    */
-  function fetchDueStats(dbInstance, language, deckId, logFn) {
+  function fetchDueStats(dbInstance, language, deckId, logFn, dueStatsPeriod = "dueStats1") {
     try {
+      const periodMap = {
+        "dueStats1": 30,
+        "dueStats2": 60,
+        "dueStats3": 90,
+        "dueStats6": 180,
+        "dueStats12": 365
+      };
+      
+      const forecastDays = periodMap[dueStatsPeriod] || CHART_CONFIG.FORECAST_DAYS;
+      
       const startDate = new Date(CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY);
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const todayDayNumber = Math.floor((today - startDate) / (1000 * 60 * 60 * 24));
-      const endDayNumber = todayDayNumber + (CHART_CONFIG.FORECAST_DAYS - 1);
+      const endDayNumber = todayDayNumber + (forecastDays - 1);
       
       logFn(`Calculating due cards between day ${todayDayNumber} and ${endDayNumber}`);
       
@@ -1542,7 +1578,7 @@ function debounce(func, wait) {
       const dateCounts = [];
       const tempDate = new Date(today);
       
-      for (let i = 0; i < CHART_CONFIG.FORECAST_DAYS; i++) {
+      for (let i = 0; i < forecastDays; i++) {
         const label = tempDate.toLocaleDateString(undefined, {
           month: "short",
           day: "numeric",
@@ -1564,7 +1600,7 @@ function debounce(func, wait) {
           dueCountsByDay[resultRow.due] = resultRow.count;
         });
         
-        for (let i = 0; i < CHART_CONFIG.FORECAST_DAYS; i++) {
+        for (let i = 0; i < forecastDays; i++) {
           const dayNum = todayDayNumber + i;
           if (dueCountsByDay[dayNum]) {
             dateCounts[i] = dueCountsByDay[dayNum];
@@ -1993,7 +2029,8 @@ function debounce(func, wait) {
               dbInstance, 
               appState.selectedLanguage, 
               appState.selectedDeckId, 
-              extensionLog
+              extensionLog,
+              vueInstance ? vueInstance.selectedDuePeriod : "dueStats1"
             );
             
             const intervalData = fetchIntervalStats(
@@ -2379,7 +2416,44 @@ function debounce(func, wait) {
     props: {
       dueStats: Object,
       componentHash: String,
-      chartRef: String
+      chartRef: String,
+      selectedPeriod: {
+        type: String,
+        default: "dueStats1"
+      }
+    },
+    components: {
+      DropdownMenu
+    },
+    data() {
+      return {
+        periodOptions: [
+          { id: "dueStats1", name: '1 Month' },
+          { id: "dueStats2", name: '2 Months' },
+          { id: "dueStats3", name: '3 Months' },
+          { id: "dueStats6", name: '6 Months' },
+          { id: "dueStats12", name: '12 Months' }
+        ]
+      };
+    },
+    computed: {
+      currentPeriod: {
+        get() {
+          return this.selectedPeriod;
+        },
+        set(value) {
+          this.$emit('period-change', value);
+        }
+      },
+      forecastDays() {
+        const selectedOption = this.periodOptions.find(p => p.id === this.currentPeriod);
+        return selectedOption ? selectedOption.days : 30;
+      }
+    },
+    methods: {
+      handlePeriodChange(period) {
+        this.currentPeriod = period;
+      }
     },
     mounted() {
       this.$nextTick(() => {
@@ -2401,7 +2475,25 @@ function debounce(func, wait) {
     template: `
       <div v-if="dueStats && dueStats.labels && dueStats.counts" v-bind:[componentHash]="true" class="MCS__due-stats-card">
         <div v-bind:[componentHash]="true" class="Statistic__card__header">
-          <h3 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading3 -heading">Cards Due (Next ${CHART_CONFIG.FORECAST_DAYS} Days)</h3>
+          <h3 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading3 -heading">Cards Due</h3>
+          <div class="MCS__header-selector">
+            <dropdown-menu
+              :items="periodOptions"
+              :modelValue="currentPeriod"
+              @update:modelValue="handlePeriodChange"
+              item-key="id"
+              item-label="name"
+              placeholder="Select Period"
+              width="180"
+              :component-hash="componentHash"
+            >
+              <template #trigger="{ selectedLabel }">
+                <span class="multiselect__single">
+                  <span class="UiTypo UiTypo__caption -no-wrap multiselect__single__text">Next {{ selectedLabel }}</span>
+                </span>
+              </template>
+            </dropdown-menu>
+          </div>
         </div>
         <div v-bind:[componentHash]="true" class="MCS__duechart">
           <canvas ref="canvas"></canvas>
@@ -2409,7 +2501,25 @@ function debounce(func, wait) {
       </div>
       <div v-else v-bind:[componentHash]="true" class="MCS__due-stats-card">
         <div v-bind:[componentHash]="true" class="Statistic__card__header">
-          <h3 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading3 -heading">Cards Due (Next ${CHART_CONFIG.FORECAST_DAYS} Days)</h3>
+          <h3 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading3 -heading">Cards Due</h3>
+           <div class="MCS__header-selector">
+            <dropdown-menu
+              :items="periodOptions"
+              :modelValue="currentPeriod"
+              @update:modelValue="handlePeriodChange"
+              item-key="id"
+              item-label="name"
+              placeholder="Select Period"
+              width="180"
+              :component-hash="componentHash"
+            >
+              <template #trigger="{ selectedLabel }">
+                <span class="multiselect__single">
+                  <span class="UiTypo UiTypo__caption -no-wrap multiselect__single__text">Next {{ selectedLabel }}</span>
+                </span>
+              </template>
+            </dropdown-menu>
+          </div>
         </div>
         <p v-bind:[componentHash]="true" class="UiTypo UiTypo__body2">Could not load due card data.</p>
       </div>
@@ -2824,6 +2934,7 @@ function debounce(func, wait) {
           selectedPercentile: "intervalPercentile95",
           selectedPeriodStudyStats: "studyStats1",
           selectedPeriodReviewHistory: "reviewHistory1",
+          selectedDuePeriod: "dueStats1",
           componentHash,
           currentTheme: getCurrentTheme(),
           wordChartRendered: false,
@@ -3033,6 +3144,14 @@ function debounce(func, wait) {
           
           this.selectedPeriodReviewHistory = period;
           runFilteredStatsQuery(this);
+        },
+        handleDuePeriodChange(period) {
+          if (this.selectedDuePeriod === period) {
+            return;
+          }
+          
+          this.selectedDuePeriod = period;
+          runFilteredStatsQuery(this);
         }
       },
       watch: {
@@ -3142,6 +3261,8 @@ function debounce(func, wait) {
                 chart-ref="dueChart"
                 @canvas-mounted="handleDueCanvasMounted"
                 @canvas-unmounted="handleDueCanvasUnmounted"
+                :selected-period="selectedDuePeriod"
+                @period-change="handleDuePeriodChange"
               />
               
               <!-- Interval Stats -->
