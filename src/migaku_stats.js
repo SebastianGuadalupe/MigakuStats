@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Migaku Custom Stats
 // @namespace    http://tampermonkey.net/
-// @version      0.1.1
+// @version      0.1.2
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
 // @match        https://study.migaku.com
@@ -35,7 +35,7 @@ function debounce(func, wait) {
 
   // Environment and debug settings
   const SETTINGS = {
-    ENVIRONMENT: "dev",
+    ENVIRONMENT: "prod",
     DEFAULT_TIMEOUT: 15000,
     DEFAULT_DECK_ID: "all"
   };
