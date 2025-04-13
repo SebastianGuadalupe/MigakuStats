@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Migaku Custom Stats
 // @namespace    http://tampermonkey.net/
-// @version      0.1.3
+// @version      0.1.4
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
 // @match        https://study.migaku.com
@@ -303,6 +303,15 @@ function debounce(func, wait) {
         position: absolute;
         top: 0;
         left: 0;
+    }
+
+    .MCS__percentile-selector {
+      margin-left: auto;
+    }
+    .Statistic__card__header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
     }
     `;
 
@@ -1583,7 +1592,7 @@ function debounce(func, wait) {
    * @param {Function} logFn - Logging function
    * @returns {Object|null} - Interval statistics or null if failed
    */
-  function fetchIntervalStats(dbInstance, language, deckId, logFn) {
+  function fetchIntervalStats(dbInstance, language, deckId, logFn, percentile = 95) {
     try {
       let intervalQuery = SQL_QUERIES.INTERVAL_QUERY;
       let intervalQueryParams = [language];
@@ -1611,7 +1620,7 @@ function debounce(func, wait) {
           totalCards += count;
         });
         
-        const cutoffPercentile = 0.95; // 95th percentile (exclude top 5%)
+        const cutoffPercentile = percentile / 100;
         let cumulativeCount = 0;
         let cutoffInterval = maxInterval;
         
@@ -1619,15 +1628,15 @@ function debounce(func, wait) {
         
         for (const interval of sortedIntervals) {
           cumulativeCount += intervalMap.get(interval);
-          const percentile = cumulativeCount / totalCards;
+          const percentileValue = cumulativeCount / totalCards;
           
-          if (percentile >= cutoffPercentile) {
+          if (percentileValue >= cutoffPercentile) {
             cutoffInterval = interval;
             break;
           }
         }
         
-        logFn(`Excluding intervals beyond ${cutoffInterval} days (top 5% outliers)`);
+        logFn(`Excluding intervals beyond ${cutoffInterval} days (${percentile}th percentile)`);
         
         const intervalLabels = [];
         const intervalCounts = [];
@@ -2102,21 +2111,44 @@ function debounce(func, wait) {
   // Vue Components
   // =========================================================================
 
-  const DeckSelector = {
+  const DropdownMenu = {
     props: {
-      availableDecks: Array,
-      selectedDeckId: String,
+      items: {
+        type: Array,
+        required: true
+      },
+      modelValue: {
+        type: [String, Number, Object],
+        default: null
+      },
+      itemKey: {
+        type: String,
+        default: 'id'
+      },
+      itemLabel: {
+        type: [String, Function],
+        default: 'name'
+      },
+      placeholder: {
+        type: String,
+        default: 'Select an option'
+      },
+      width: {
+        type: Number,
+        default: 250
+      },
       componentHash: String
     },
+    emits: ['update:modelValue'],
     data() {
       return {
         isDropdownOpen: false
       };
     },
     computed: {
-      selectedDeckName() {
-        const deck = this.availableDecks.find(d => d.id === this.selectedDeckId);
-        return deck ? deck.name : UI_TEXTS.ALL_DECKS;
+      selectedItemLabel() {
+        const selectedItem = this.items.find(item => this.getItemKey(item) === this.modelValue);
+        return selectedItem ? this.getItemLabel(selectedItem) : this.placeholder;
       }
     },
     methods: {
@@ -2124,18 +2156,25 @@ function debounce(func, wait) {
         event.stopPropagation();
         this.isDropdownOpen = !this.isDropdownOpen;
       },
-      selectDeck(deckId, event) {
+      selectItem(item, event) {
         event.stopPropagation();
-        if (this.selectedDeckId === deckId) {
-          this.isDropdownOpen = false;
-          return;
+        const itemKey = this.getItemKey(item);
+        if (this.modelValue !== itemKey) {
+          this.$emit('update:modelValue', itemKey);
         }
-        
-        this.$emit('deck-selected', deckId);
         this.isDropdownOpen = false;
       },
       closeDropdown() {
         this.isDropdownOpen = false;
+      },
+      getItemKey(item) {
+        return item[this.itemKey];
+      },
+      getItemLabel(item) {
+        if (typeof this.itemLabel === 'function') {
+          return this.itemLabel(item);
+        }
+        return item[this.itemLabel];
       }
     },
     mounted() {
@@ -2145,80 +2184,120 @@ function debounce(func, wait) {
       document.removeEventListener('click', this.closeDropdown);
     },
     template: `
-      <div v-bind:[componentHash]="true" class="MCS__deck-selector UiFormField SettingsGeneral__optionLeft">
-        <div class="UiFormField__labelContainer">
-          <label v-bind:[componentHash]="true" class="UiTypo UiTypo__body UiFormField__labelContainer__typo">Deck</label>
-        </div>
-        <div class="UiFormField__controlContainer">
-          <div
-            tabindex="0"
-            class="multiselect multiselect--right -has-value"
-            role="combobox"
-            style="width: 250px;"
-            :class="{'multiselect--active': isDropdownOpen}"
-            @click="toggleDropdown"
-          >
-            <div class="UiIcon multiselect__caret" style="width: 24px;">
-              <div class="UiIcon__inner">
-                <div class="UiSvg UiIcon__svg" name="ChevronDownSmall" gradient="false" spin="false">
-                  <div class="UiSvg__inner">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" role="img">
-                      <path fill="currentColor" fill-rule="evenodd" d="M7.116 10.116a1.25 1.25 0 0 1 1.768 0L12 13.232l3.116-3.116a1.25 1.25 0 0 1 1.768 1.768l-4 4a1.25 1.25 0 0 1-1.768 0l-4-4a1.25 1.25 0 0 1 0-1.768" clip-rule="evenodd"></path>
-                    </svg>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div class="multiselect__tags">
-              <span class="multiselect__single">
-                <span class="UiTypo UiTypo__caption -no-wrap multiselect__single__text">{{ selectedDeckName }}</span>
-              </span>
-            </div>
-            <div 
-              class="multiselect__content-wrapper"
-              tabindex="-1"
-              style="max-height: 300px;" 
-              :style="{display: isDropdownOpen ? 'block' : 'none'}"
-            >
-              <ul class="multiselect__content" role="listbox" style="display: inline-block;">
-                <li class="multiselect__element" role="option" v-for="deck in availableDecks" :key="deck.id">
-                  <span
-                    class="multiselect__option" 
-                    :class="{'multiselect__option--highlight multiselect__option--selected': deck.id === selectedDeckId}"
-                    @click="selectDeck(deck.id, $event)"
-                  >
-                    <div class="multiselect__optionWrapper" style="width: 180px;">
-                      <span
-                        class="UiTypo UiTypo__caption"
-                        :class="{'-emphasis': deck.id === selectedDeckId}"
-                        style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
-                      >
-                        {{ deck.name }}
-                      </span>
-                      <div class="UiIcon multiselect__checkIcon" style="width: 24px;">
-                        <div v-if="deck.id === selectedDeckId" class="UiIcon__inner">
-                          <div class="UiSvg UiIcon__svg" name="Check" gradient="true" spin="false">
-                            <div class="UiSvg__inner UiIcon__gradient" :style="'clip-path: url(#checkmark-' + deck.id + ');'">
-                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" role="img">
-                                <defs>
-                                  <clipPath :id="'checkmark-' + deck.id" data-dont-prefix-id="" transform="scale(1)">
-                                    <path fill="currentColor" fill-rule="evenodd" d="M19.83 7.066a1.25 1.25 0 0 1 .104 1.764l-8 9a1.25 1.25 0 0 1-1.818.054l-5-5a1.25 1.25 0 0 1 1.768-1.768l4.063 4.063 7.119-8.01a1.25 1.25 0 0 1 1.765-.103" clip-rule="evenodd">
-                                    </path>
-                                  </clipPath>
-                                </defs>
-                              </svg>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </span>
-                </li>
-              </ul>
+    <div 
+      v-bind:[componentHash]="true" 
+      tabindex="0" 
+      class="multiselect multiselect--right" 
+      :class="{ '-has-value': modelValue !== null, 'multiselect--active': isDropdownOpen }" 
+      role="combobox" 
+      :style="{ width: width + 'px' }" 
+      @click="toggleDropdown"
+    >
+      <div class="UiIcon multiselect__caret" style="width: 24px;">
+        <div class="UiIcon__inner">
+          <div class="UiSvg UiIcon__svg" name="ChevronDownSmall" gradient="false" spin="false">
+            <div class="UiSvg__inner">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" role="img">
+                <path fill="currentColor" fill-rule="evenodd" d="M7.116 10.116a1.25 1.25 0 0 1 1.768 0L12 13.232l3.116-3.116a1.25 1.25 0 0 1 1.768 1.768l-4 4a1.25 1.25 0 0 1-1.768 0l-4-4a1.25 1.25 0 0 1 0-1.768" clip-rule="evenodd"></path>
+              </svg>
             </div>
           </div>
         </div>
       </div>
+      <div class="multiselect__tags">
+        <slot name="trigger" :selectedLabel="selectedItemLabel">
+          <span class="multiselect__single">
+            <span class="UiTypo UiTypo__caption -no-wrap multiselect__single__text">{{ selectedItemLabel }}</span>
+          </span>
+        </slot>
+      </div>
+      <div 
+        class="multiselect__content-wrapper" 
+        tabindex="-1" 
+        style="max-height: 300px;" 
+        :style="{ display: isDropdownOpen ? 'block' : 'none' }"
+      >
+        <ul class="multiselect__content" role="listbox" style="display: inline-block;">
+          <li class="multiselect__element" role="option" v-for="item in items" :key="getItemKey(item)">
+            <span 
+              class="multiselect__option" 
+              :class="{ 'multiselect__option--highlight multiselect__option--selected': getItemKey(item) === modelValue }" 
+              @click="selectItem(item, $event)"
+            >
+              <slot name="item" :item="item" :isSelected="getItemKey(item) === modelValue">
+                <div class="multiselect__optionWrapper" :style="{ width: width - 40 + 'px' }" >
+                  <span 
+                    class="UiTypo UiTypo__caption" 
+                    :class="{ '-emphasis': getItemKey(item) === modelValue }" 
+                    style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                  >
+                    {{ getItemLabel(item) }}
+                  </span>
+                  <div class="UiIcon multiselect__checkIcon" style="width: 24px;">
+                    <div v-if="getItemKey(item) === modelValue" class="UiIcon__inner">
+                      <div class="UiSvg UiIcon__svg" name="Check" gradient="true" spin="false">
+                         <div class="UiSvg__inner UiIcon__gradient" :style="'clip-path: url(#checkmark-dd-' + getItemKey(item) + ');'">
+                           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" role="img">
+                            <defs>
+                              <clipPath :id="'checkmark-dd-' + getItemKey(item)" data-dont-prefix-id="" transform="scale(1)">
+                                <path fill="currentColor" fill-rule="evenodd" d="M19.83 7.066a1.25 1.25 0 0 1 .104 1.764l-8 9a1.25 1.25 0 0 1-1.818.054l-5-5a1.25 1.25 0 0 1 1.768-1.768l4.063 4.063 7.119-8.01a1.25 1.25 0 0 1 1.765-.103" clip-rule="evenodd">
+                                </path>
+                              </clipPath>
+                            </defs>
+                          </svg>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </slot>
+            </span>
+          </li>
+        </ul>
+      </div>
+    </div>
+    `
+  };
+
+  const DeckSelector = {
+    components: { DropdownMenu },
+    props: {
+      availableDecks: Array,
+      selectedDeckId: String,
+      componentHash: String
+    },
+    emits: ['deck-selected'],
+    methods: {
+      handleDeckUpdate(newDeckId) {
+        if (this.selectedDeckId !== newDeckId) {
+          this.$emit('deck-selected', newDeckId);
+        }
+      }
+    },
+    template: `
+    <div v-bind:[componentHash]="true" class="MCS__deck-selector UiFormField SettingsGeneral__optionLeft">
+      <div class="UiFormField__labelContainer">
+        <label v-bind:[componentHash]="true" class="UiTypo UiTypo__body UiFormField__labelContainer__typo">Deck</label>
+      </div>
+      <div class="UiFormField__controlContainer">
+        <dropdown-menu
+          :items="availableDecks"
+          :modelValue="selectedDeckId"
+          @update:modelValue="handleDeckUpdate"
+          item-key="id"
+          item-label="name"
+          placeholder="Select Deck"
+          width="250"
+          :component-hash="componentHash"
+        >
+          <template #trigger="{ selectedLabel }">
+            <span class="multiselect__single">
+              <span class="UiTypo UiTypo__caption -no-wrap multiselect__single__text">{{ selectedLabel }}</span>
+            </span>
+          </template>
+        </dropdown-menu>
+      </div>
+    </div>
     `
   };
 
@@ -2350,6 +2429,26 @@ function debounce(func, wait) {
       componentHash: String,
       chartRef: String
     },
+    components: {
+      DropdownMenu
+    },
+    data() {
+      return {
+        selectedPercentile: 95,
+        percentileOptions: [
+          { id: 50, name: '50th' },
+          { id: 75, name: '75th' },
+          { id: 95, name: '95th' },
+          { id: 100, name: '100th' }
+        ]
+      };
+    },
+    methods: {
+      handlePercentileChange(value) {
+        this.selectedPercentile = value;
+        this.$emit('percentile-changed', value);
+      }
+    },
     mounted() {
       this.$nextTick(() => {
         if (this.$refs.canvas) {
@@ -2370,7 +2469,25 @@ function debounce(func, wait) {
     template: `
       <div v-if="intervalStats && intervalStats.labels && intervalStats.counts" v-bind:[componentHash]="true" class="MCS__interval-stats-card">
         <div v-bind:[componentHash]="true" class="Statistic__card__header">
-          <h3 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading3 -heading">Review Intervals (95th Percentile)</h3>
+          <h3 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading3 -heading">Review Intervals</h3>
+          <div class="MCS__percentile-selector">
+            <dropdown-menu
+              :items="percentileOptions"
+              :modelValue="selectedPercentile"
+              @update:modelValue="handlePercentileChange"
+              item-key="id"
+              item-label="name"
+              placeholder="Select Percentile"
+              width="180"
+              :component-hash="componentHash"
+            >
+              <template #trigger="{ selectedLabel }">
+                <span class="multiselect__single">
+                  <span class="UiTypo UiTypo__caption -no-wrap multiselect__single__text">{{ selectedLabel }} Percentile</span>
+                </span>
+              </template>
+            </dropdown-menu>
+          </div>
         </div>
         <div v-bind:[componentHash]="true" class="MCS__intervalchart">
           <canvas ref="canvas"></canvas>
@@ -2378,7 +2495,25 @@ function debounce(func, wait) {
       </div>
       <div v-else v-bind:[componentHash]="true" class="MCS__interval-stats-card">
         <div v-bind:[componentHash]="true" class="Statistic__card__header">
-          <h3 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading3 -heading">Review Intervals (95th Percentile)</h3>
+          <h3 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading3 -heading">Review Intervals</h3>
+          <div class="MCS__percentile-selector">
+            <dropdown-menu
+              :items="percentileOptions"
+              :modelValue="selectedPercentile"
+              @update:modelValue="handlePercentileChange"
+              item-key="id"
+              item-label="name"
+              placeholder="Select Percentile"
+              width="120"
+              :component-hash="componentHash"
+            >
+              <template #trigger="{ selectedLabel }">
+                <span class="multiselect__single">
+                  <span class="UiTypo UiTypo__caption -no-wrap multiselect__single__text">{{ selectedLabel }} Percentile</span>
+                </span>
+              </template>
+            </dropdown-menu>
+          </div>
         </div>
         <p v-bind:[componentHash]="true" class="UiTypo UiTypo__body2">Could not load review interval data.</p>
       </div>
@@ -2529,6 +2664,7 @@ function debounce(func, wait) {
 
     const app = Vue.createApp({
       components: {
+        DropdownMenu,
         DeckSelector,
         WordStatsCard,
         DueStatsCard,
@@ -2549,6 +2685,7 @@ function debounce(func, wait) {
           availableDecks: dbState.availableDecks,
           selectedDeckId: appState.selectedDeckId,
           selectedLanguage: appState.selectedLanguage,
+          selectedPercentile: 95,
           componentHash,
           currentTheme: getCurrentTheme(),
           wordChartRendered: false,
@@ -2734,6 +2871,68 @@ function debounce(func, wait) {
           if (newData.isError !== undefined) {
             this.isError = newData.isError;
           }
+        },
+        handleIntervalPercentileChanged(percentile) {
+          if (this.selectedPercentile === percentile) {
+            return;
+          }
+          
+          this.selectedPercentile = percentile;
+          this.intervalChartRendered = false;
+          
+          if (dbState.lastIntervalStats) {
+            const recalculateIntervalStats = (rawStats, percentile) => {
+              extensionLog(`Recalculating intervals with ${percentile}th percentile`);
+              
+              const intervalMap = new Map();
+              let maxInterval = 0;
+              let totalCards = 0;
+              
+              for (let i = 0; i < rawStats.labels.length; i++) {
+                const label = rawStats.labels[i];
+                const count = rawStats.counts[i];
+                const interval = parseInt(label.split(' ')[0]);
+                
+                intervalMap.set(interval, count);
+                maxInterval = Math.max(maxInterval, interval);
+                totalCards += count;
+              }
+              
+              const cutoffPercentile = percentile / 100;
+              let cumulativeCount = 0;
+              let cutoffInterval = maxInterval;
+              
+              const sortedIntervals = Array.from(intervalMap.keys()).sort((a, b) => a - b);
+              
+              for (const interval of sortedIntervals) {
+                cumulativeCount += intervalMap.get(interval);
+                const percentileValue = cumulativeCount / totalCards;
+                
+                if (percentileValue >= cutoffPercentile) {
+                  cutoffInterval = interval;
+                  break;
+                }
+              }
+              
+              extensionLog(`Excluding intervals beyond ${cutoffInterval} days (${percentile}th percentile)`);
+              
+              const intervalLabels = [];
+              const intervalCounts = [];
+              
+              for (let i = 1; i <= cutoffInterval; i++) {
+                let label = i === 1 ? "1 day" : `${i} days`;
+                
+                intervalLabels.push(label);
+                intervalCounts.push(intervalMap.has(i) ? intervalMap.get(i) : 0);
+              }
+              
+              return { labels: intervalLabels, counts: intervalCounts };
+            };
+            
+            const fullIntervalData = dbState.lastIntervalStats;
+            this.intervalStats = recalculateIntervalStats(fullIntervalData, percentile);
+            this.updateCharts();
+          }
         }
       },
       watch: {
@@ -2852,6 +3051,7 @@ function debounce(func, wait) {
                 chart-ref="intervalChart"
                 @canvas-mounted="handleIntervalCanvasMounted"
                 @canvas-unmounted="handleIntervalCanvasUnmounted"
+                @percentile-changed="handleIntervalPercentileChanged"
               />
               
               <!-- Study Stats -->
