@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Migaku Custom Stats
 // @namespace    http://tampermonkey.net/
-// @version      0.1.4
+// @version      0.1.5
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
 // @match        https://study.migaku.com
@@ -72,7 +72,7 @@ function debounce(func, wait) {
     KNOWN: "KNOWN",
     LEARNING: "LEARNING",
     UNKNOWN: "UNKNOWN",
-    IGNORED: "IGNORE"
+    IGNORED: "IGNORED"
   };
 
   // Chart configuration
