@@ -252,9 +252,8 @@ function debounce(func, wait) {
     dark: {
       backgroundElevation1: "#202047",
       backgroundElevation2: "#2b2b60",
-      accent1: "#b272ff",
-      accent1HighContrast: "#d0b2ff",
-      accent1LowContrast: "#493085",
+      accent1: "rgba(178, 114, 255, 1)",
+      accent1Transparent: "rgba(178, 114, 255, 0.12)",
       textColor: "rgba(255, 255, 255, 1)",
       gridColor: "rgba(255, 255, 255, 0.1)",
       knownColor: "rgba(0, 199, 164, 1)",
@@ -457,17 +456,40 @@ function debounce(func, wait) {
         return null;
       }
       
+      const cumulativeCounts = [];
+      let runningSum = 0;
+      for (let i = 0; i < dueStats.counts.length; i++) {
+        runningSum += dueStats.counts[i];
+        cumulativeCounts.push(runningSum);
+      }
+      
       const chartConfig = {
         type: 'bar',
         data: {
           labels: dueStats.labels,
-          datasets: [{
-            label: 'Cards Due',
-            data: dueStats.counts,
-            backgroundColor: themeColors.barColor,
-            borderWidth: 0,
-            borderRadius: 4,
-          }],
+          datasets: [
+            {
+              label: 'Cards Due',
+              data: dueStats.counts,
+              backgroundColor: themeColors.barColor,
+              borderWidth: 0,
+              borderRadius: 4,
+              order: 2
+            },
+            {
+              label: 'Cumulative Cards',
+              data: cumulativeCounts,
+              type: 'line',
+              borderColor: themeColors.unknownColor,
+              backgroundColor: themeColors.unknownColor,
+              borderWidth: 2,
+              pointStyle: false,
+              tension: 0.4,
+              fill: 'origin',
+              yAxisID: 'y1',
+              order: 1
+            }
+          ],
         },
         options: {
           responsive: true,
@@ -479,6 +501,11 @@ function debounce(func, wait) {
           scales: {
             y: {
               beginAtZero: true,
+              title: {
+                display: true,
+                text: 'Cards Due',
+                color: themeColors.textColor
+              },
               ticks: {
                 color: themeColors.textColor,
                 precision: 0,
@@ -487,7 +514,28 @@ function debounce(func, wait) {
                 color: themeColors.gridColor,
               },
             },
+            y1: {
+              position: 'right',
+              beginAtZero: true,
+              title: {
+                display: true,
+                text: 'Cumulative Cards',
+                color: themeColors.textColor
+              },
+              ticks: {
+                color: themeColors.textColor,
+                precision: 0,
+              },
+              grid: {
+                drawOnChartArea: false,
+              },
+            },
             x: {
+              title: {
+                display: true,
+                text: 'Date',
+                color: themeColors.textColor
+              },
               ticks: {
                 color: themeColors.textColor,
                 maxRotation: 45,
@@ -500,9 +548,37 @@ function debounce(func, wait) {
           },
           plugins: {
             legend: {
-              display: false,
+              display: true,
+              position: 'top',
+              labels: {
+                color: themeColors.textColor,
+              }
             },
             tooltip: {
+              mode: 'index',
+              intersect: false,
+              callbacks: {
+                title: function(tooltipItems) {
+                  return tooltipItems[0].label;
+                },
+                label: function(context) {
+                  const datasetLabel = context.dataset.label || '';
+                  const value = context.parsed.y;
+                  const total = cumulativeCounts[cumulativeCounts.length - 1];
+                  
+                  if (datasetLabel === 'Cards Due' && value > 0) {
+                    const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
+                    return `${datasetLabel}: ${value} (${percentage}%)`;
+                  }
+                  
+                  if (datasetLabel === 'Cumulative Cards') {
+                    const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
+                    return `${datasetLabel}: ${value} (${percentage}%)`;
+                  }
+                  
+                  return `${datasetLabel}: ${value}`;
+                }
+              },
               backgroundColor: themeColors.backgroundElevation2,
               titleFontColor: themeColors.textColor,
               caretSize: CHART_CONFIG.TOOLTIP_CONFIG.CARET_SIZE,
@@ -524,15 +600,60 @@ function debounce(func, wait) {
           this.dueChartInstance.data.labels = dueStats.labels;
           this.dueChartInstance.data.datasets[0].data = dueStats.counts;
           
+          if (this.dueChartInstance.data.datasets.length > 1) {
+            this.dueChartInstance.data.datasets[1].data = cumulativeCounts;
+            this.dueChartInstance.data.datasets[1].borderColor = themeColors.unknownColor;
+            this.dueChartInstance.data.datasets[1].backgroundColor = themeColors.unknownColor;
+          } else {
+            this.dueChartInstance.data.datasets.push({
+              label: 'Cumulative Cards',
+              data: cumulativeCounts,
+              type: 'line',
+              borderColor: themeColors.unknownColor,
+              backgroundColor: themeColors.unknownColor,
+              borderWidth: 2,
+              pointStyle: false,
+              tension: 0.4,
+              yAxisID: 'y1',
+              order: 1
+            });
+            
+            if (!this.dueChartInstance.options.scales.y1) {
+              this.dueChartInstance.options.scales.y1 = {
+                position: 'right',
+                beginAtZero: true,
+                title: {
+                  display: true,
+                  text: 'Cumulative Cards',
+                  color: themeColors.textColor
+                },
+                ticks: {
+                  color: themeColors.textColor,
+                  precision: 0,
+                },
+                grid: {
+                  drawOnChartArea: false,
+                },
+              };
+            }
+          }
+          
           this.dueChartInstance.data.datasets[0].backgroundColor = themeColors.barColor;
           
           this.dueChartInstance.options.scales.y.ticks.color = themeColors.textColor;
+          this.dueChartInstance.options.scales.y.title.color = themeColors.textColor;
           this.dueChartInstance.options.scales.y.grid.color = themeColors.gridColor;
+          this.dueChartInstance.options.scales.y1.ticks.color = themeColors.textColor;
+          this.dueChartInstance.options.scales.y1.title.color = themeColors.textColor;
           this.dueChartInstance.options.scales.x.ticks.color = themeColors.textColor;
+          this.dueChartInstance.options.scales.x.title.color = themeColors.textColor;
           this.dueChartInstance.options.scales.x.grid.color = themeColors.gridColor;
+          this.dueChartInstance.options.plugins.legend.labels.color = themeColors.textColor;
           this.dueChartInstance.options.plugins.tooltip.backgroundColor = themeColors.backgroundElevation2;
           this.dueChartInstance.options.plugins.tooltip.bodyColor = themeColors.textColor;
           this.dueChartInstance.options.plugins.tooltip.titleColor = themeColors.textColor;
+          
+          this.dueChartInstance.options.plugins.legend.display = true;
           
           this.dueChartInstance.update();
           return this.dueChartInstance;
@@ -610,11 +731,12 @@ function debounce(func, wait) {
               label: 'Cumulative Cards',
               data: cumulativeCounts,
               type: 'line',
-              borderColor: themeColors.accent1HighContrast,
-              backgroundColor: themeColors.accent1HighContrast,
+              borderColor: themeColors.accent1Transparent,
+              backgroundColor: themeColors.accent1Transparent,
               borderWidth: 2,
               pointStyle: false,
               tension: 0.4,
+              fill: 'origin',
               yAxisID: 'y1',
               order: 1
             }
@@ -727,8 +849,8 @@ function debounce(func, wait) {
           this.intervalChartInstance.data.datasets[1].data = cumulativeCounts;
           
           this.intervalChartInstance.data.datasets[0].backgroundColor = themeColors.accent1;
-          this.intervalChartInstance.data.datasets[1].borderColor = themeColors.accent1HighContrast;
-          this.intervalChartInstance.data.datasets[1].backgroundColor = themeColors.accent1HighContrast;
+          this.intervalChartInstance.data.datasets[1].borderColor = themeColors.accent1Transparent;
+          this.intervalChartInstance.data.datasets[1].backgroundColor = themeColors.accent1Transparent;
           
           this.intervalChartInstance.options.scales.y.ticks.color = themeColors.textColor;
           this.intervalChartInstance.options.scales.y.title.color = themeColors.textColor;
