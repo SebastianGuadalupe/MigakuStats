@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Migaku Custom Stats
 // @namespace    http://tampermonkey.net/
-// @version      0.1.8
+// @version      0.1.9
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
 // @match        https://study.migaku.com
@@ -1549,7 +1549,8 @@ function debounce(func, wait) {
         "dueStats2": 60,
         "dueStats3": 90,
         "dueStats6": 180,
-        "dueStats12": 365
+        "dueStats12": 365,
+        "dueStatsAll": 3650
       };
       
       const forecastDays = periodMap[dueStatsPeriod] || CHART_CONFIG.FORECAST_DAYS;
@@ -1558,9 +1559,36 @@ function debounce(func, wait) {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const todayDayNumber = Math.floor((today - startDate) / (1000 * 60 * 60 * 24));
-      const endDayNumber = todayDayNumber + (forecastDays - 1);
+      
+      let endDayNumber;
+      if (dueStatsPeriod === "dueStatsAll") {
+        let maxDueQuery = `SELECT MAX(due) as maxDue FROM card c
+                          JOIN card_type ct ON c.cardTypeId = ct.id
+                          WHERE ct.lang = ? AND c.due >= ? AND c.del = 0`;
+        let maxDueParams = [language, todayDayNumber];
+        
+        if (deckId !== SETTINGS.DEFAULT_DECK_ID) {
+          maxDueQuery += " AND c.deckId = ?";
+          maxDueParams.push(deckId);
+        }
+        
+        const maxDueResults = dbInstance.exec(maxDueQuery, maxDueParams);
+        
+        if (maxDueResults.length > 0 && maxDueResults[0].values.length > 0 && maxDueResults[0].values[0][0] !== null) {
+          const maxDueDay = maxDueResults[0].values[0][0];
+          endDayNumber = Math.min(todayDayNumber + 365, maxDueDay);
+          logFn(`Found max due day: ${maxDueDay}, using end day: ${endDayNumber}`);
+        } else {
+          endDayNumber = todayDayNumber + forecastDays - 1;
+          logFn(`No max due day found, using default: ${endDayNumber}`);
+        }
+      } else {
+        endDayNumber = todayDayNumber + (forecastDays - 1);
+      }
       
       logFn(`Calculating due cards between day ${todayDayNumber} and ${endDayNumber}`);
+      
+      const actualForecastDays = endDayNumber - todayDayNumber + 1;
       
       let dueQuery = SQL_QUERIES.DUE_QUERY;
       let dueQueryParams = [language, todayDayNumber, endDayNumber];
@@ -1578,10 +1606,11 @@ function debounce(func, wait) {
       const dateCounts = [];
       const tempDate = new Date(today);
       
-      for (let i = 0; i < forecastDays; i++) {
+      for (let i = 0; i < actualForecastDays; i++) {
         const label = tempDate.toLocaleDateString(undefined, {
           month: "short",
           day: "numeric",
+          year: "numeric"
         });
         dateLabels.push(label);
         dateCounts.push(0);
@@ -1600,10 +1629,26 @@ function debounce(func, wait) {
           dueCountsByDay[resultRow.due] = resultRow.count;
         });
         
-        for (let i = 0; i < forecastDays; i++) {
+        for (let i = 0; i < actualForecastDays; i++) {
           const dayNum = todayDayNumber + i;
           if (dueCountsByDay[dayNum]) {
             dateCounts[i] = dueCountsByDay[dayNum];
+          }
+        }
+        
+        if (dueStatsPeriod === "dueStatsAll") {
+          let lastNonZeroIndex = dateCounts.length - 1;
+          while (lastNonZeroIndex >= 0 && dateCounts[lastNonZeroIndex] === 0) {
+            lastNonZeroIndex--;
+          }
+          
+          const extraDays = 5;
+          lastNonZeroIndex = Math.min(lastNonZeroIndex + extraDays, dateCounts.length - 1);
+          
+          if (lastNonZeroIndex >= 0) {
+            dateLabels.splice(lastNonZeroIndex + 1);
+            dateCounts.splice(lastNonZeroIndex + 1);
+            logFn(`Trimmed data to ${lastNonZeroIndex + 1} days`);
           }
         }
       } else {
@@ -1711,7 +1756,8 @@ function debounce(func, wait) {
       today.setHours(0, 0, 0, 0);
       const todayDayNumber = Math.floor((today - startDate) / (1000 * 60 * 60 * 24));
       logFn(`Today's day number: ${todayDayNumber}`);
-      const periodDays = period * 30;
+      
+      const periodDays = period === "All" ? todayDayNumber : period * 30;
       const periodDaysAgoDayNumber = todayDayNumber - periodDays;
       
       logFn(`Fetching review history since day ${periodDaysAgoDayNumber} (${periodDays} days ago)`);
@@ -1721,8 +1767,8 @@ function debounce(func, wait) {
       
       if (deckId !== SETTINGS.DEFAULT_DECK_ID) {
         reviewQuery = reviewQuery.replace(
-          "WHERE ct.lang = ? AND r.day >= ?", 
-          "WHERE ct.lang = ? AND r.day >= ? AND c.deckId = ?"
+          "WHERE ct.lang = ? AND r.day >= ? AND r.del = 0", 
+          "WHERE ct.lang = ? AND r.day >= ? AND r.del = 0 AND c.deckId = ?"
         );
         reviewQueryParams.push(deckId);
       }
@@ -1733,19 +1779,33 @@ function debounce(func, wait) {
       const dateCounts = [];
       const dayMap = new Map();
       
-      for (let i = 0; i < periodDays; i++) {
+      let actualPeriodDays = periodDays;
+      if (period === "All" && reviewResults.length > 0 && reviewResults[0].values.length > 0) {
+        let earliestDayWithReviews = todayDayNumber;
+        reviewResults[0].values.forEach(row => {
+          const dayNumber = row[0];
+          earliestDayWithReviews = Math.min(earliestDayWithReviews, dayNumber);
+        });
+        
+        const daysWithData = todayDayNumber - earliestDayWithReviews + 1;
+        actualPeriodDays = Math.min(periodDays, daysWithData + 5);
+        logFn(`Found earliest day with reviews: ${earliestDayWithReviews}, using period: ${actualPeriodDays} days`);
+      }
+      
+      for (let i = 0; i < actualPeriodDays; i++) {
         const dayNumber = todayDayNumber - i;
         const date = new Date(startDate);
         date.setDate(date.getDate() + dayNumber);
         
         const displayDate = date.toLocaleDateString(undefined, {
           month: 'short',
-          day: 'numeric'
+          day: 'numeric',
+          year: 'numeric'
         });
         
         dateLabels.unshift(displayDate);
         dateCounts.unshift(0);
-        dayMap.set(dayNumber, { index: periodDays - 1 - i, displayDate });
+        dayMap.set(dayNumber, { index: actualPeriodDays - 1 - i, displayDate });
       }
       
       if (reviewResults.length > 0 && reviewResults[0].values.length > 0) {
@@ -1787,7 +1847,39 @@ function debounce(func, wait) {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const todayDayNumber = Math.floor((today - startDate) / (1000 * 60 * 60 * 24));
-      const periodDays = period * 30;
+      
+      let periodDays = period * 30;
+      
+      if (period === "All") {
+        let earliestReviewQuery = `SELECT MIN(r.day) as minDay 
+                                   FROM review r 
+                                   JOIN card c ON r.cardId = c.id 
+                                   JOIN card_type ct ON c.cardTypeId = ct.id 
+                                   WHERE ct.lang = ? AND c.del = 0`;
+        
+        let earliestReviewParams = [language];
+        
+        if (deckId !== SETTINGS.DEFAULT_DECK_ID) {
+          earliestReviewQuery += " AND c.deckId = ?";
+          earliestReviewParams.push(deckId);
+        }
+        
+        const earliestReviewResults = dbInstance.exec(earliestReviewQuery, earliestReviewParams);
+        
+        if (earliestReviewResults.length > 0 && 
+            earliestReviewResults[0].values.length > 0 && 
+            earliestReviewResults[0].values[0][0] !== null) {
+          const earliestDayWithReviews = earliestReviewResults[0].values[0][0];
+          
+          periodDays = todayDayNumber - earliestDayWithReviews + 1;
+          logFn(`Found earliest review day: ${earliestDayWithReviews}, setting period to ${periodDays} days`);
+        } else {
+          
+          periodDays = todayDayNumber;
+          logFn(`No earliest review day found, using full period: ${periodDays} days`);
+        }
+      }
+      
       const startDayNumber = todayDayNumber - periodDays;
       
       logFn(`Fetching study stats since day ${startDayNumber} (${periodDays} days ago)`);
@@ -1797,8 +1889,8 @@ function debounce(func, wait) {
       
       if (deckId !== SETTINGS.DEFAULT_DECK_ID) {
         studyQuery = studyQuery.replace(
-          "WHERE ct.lang = ? \n      AND r.day >= ?", 
-          "WHERE ct.lang = ? \n      AND r.day >= ? AND c.deckId = ?"
+          "WHERE ct.lang = ? AND r.day >= ?", 
+          "WHERE ct.lang = ? AND r.day >= ? AND c.deckId = ?"
         );
         studyQueryParams.push(deckId);
       }
@@ -2432,7 +2524,8 @@ function debounce(func, wait) {
           { id: "dueStats2", name: '2 Months' },
           { id: "dueStats3", name: '3 Months' },
           { id: "dueStats6", name: '6 Months' },
-          { id: "dueStats12", name: '12 Months' }
+          { id: "dueStats12", name: '12 Months' },
+          { id: "dueStatsAll", name: 'All time' }
         ]
       };
     },
@@ -2489,7 +2582,18 @@ function debounce(func, wait) {
             >
               <template #trigger="{ selectedLabel }">
                 <span class="multiselect__single">
-                  <span class="UiTypo UiTypo__caption -no-wrap multiselect__single__text">Next {{ selectedLabel }}</span>
+                  <span
+                    v-if="selectedLabel !== 'All time'"
+                    class="UiTypo UiTypo__caption -no-wrap multiselect__single__text"
+                  >
+                    Next {{ selectedLabel }}
+                  </span>
+                  <span
+                    v-else
+                    class="UiTypo UiTypo__caption -no-wrap multiselect__single__text"
+                  >
+                    All time
+                  </span>
                 </span>
               </template>
             </dropdown-menu>
@@ -2657,7 +2761,8 @@ function debounce(func, wait) {
           { id: "studyStats2", name: '2 Months' },
           { id: "studyStats3", name: '3 Months' },
           { id: "studyStats6", name: '6 Months' },
-          { id: "studyStats12", name: '12 Months' }
+          { id: "studyStats12", name: '12 Months' },
+          { id: "studyStatsAll", name: 'All time' }
         ]
       };
     },
@@ -2701,7 +2806,18 @@ function debounce(func, wait) {
             >
               <template #trigger="{ selectedLabel }">
                 <span class="multiselect__single">
-                  <span class="UiTypo UiTypo__caption -no-wrap multiselect__single__text">Last {{ selectedLabel }}</span>
+                  <span
+                    v-if="selectedLabel !== 'All time'"
+                    class="UiTypo UiTypo__caption -no-wrap multiselect__single__text"
+                  >
+                    Last {{ selectedLabel }}
+                  </span>
+                  <span
+                    v-else
+                    class="UiTypo UiTypo__caption -no-wrap multiselect__single__text"
+                  >
+                    All time
+                  </span>
                 </span>
               </template>
             </dropdown-menu>
@@ -2751,7 +2867,8 @@ function debounce(func, wait) {
           { id: "reviewHistory2", name: '2 Months' },
           { id: "reviewHistory3", name: '3 Months' },
           { id: "reviewHistory6", name: '6 Months' },
-          { id: "reviewHistory12", name: '12 Months' }
+          { id: "reviewHistory12", name: '12 Months' },
+          { id: "reviewHistoryAll", name: 'All time' }
         ]
       };
     },
@@ -2804,7 +2921,18 @@ function debounce(func, wait) {
             >
               <template #trigger="{ selectedLabel }">
                 <span class="multiselect__single">
-                  <span class="UiTypo UiTypo__caption -no-wrap multiselect__single__text">Last {{ selectedLabel }}</span>
+                  <span
+                    v-if="selectedLabel !== 'All time'"
+                    class="UiTypo UiTypo__caption -no-wrap multiselect__single__text"
+                  >
+                    Last {{ selectedLabel }}
+                  </span>
+                  <span
+                    v-else
+                    class="UiTypo UiTypo__caption -no-wrap multiselect__single__text"
+                  >
+                    All time
+                  </span>
                 </span>
               </template>
             </dropdown-menu>
