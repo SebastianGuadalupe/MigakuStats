@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Migaku Custom Stats
 // @namespace    http://tampermonkey.net/
-// @version      0.1.9
+// @version      0.1.10
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
 // @match        https://study.migaku.com
@@ -145,14 +145,20 @@ function debounce(func, wait) {
       ORDER BY interval_group`,
     REVIEW_HISTORY_QUERY: `
       SELECT 
-        day,
-        COUNT(*) as review_count
+        r.day,
+        COUNT(r.id) as review_count
       FROM review r
       JOIN card c ON r.cardId = c.id
       JOIN card_type ct ON c.cardTypeId = ct.id
-      WHERE ct.lang = ? AND r.day >= ? AND r.del = 0 AND r.type IN (1, 2)
-      GROUP BY day
-      ORDER BY day DESC`,
+      JOIN reviewHistory rh ON r.day = rh.day
+      WHERE ct.lang = ? AND r.day >= ? AND r.del = 0 AND 
+        CASE 
+          WHEN rh.type = 1 THEN r.type IN (1, 2)
+          WHEN rh.type = 2 THEN r.type IN (2)
+          ELSE r.type IN (1, 2)
+        END
+      GROUP BY r.day
+      ORDER BY r.day DESC`,
     STUDY_STATS_QUERY: `
       SELECT 
         COUNT(DISTINCT r.day) as days_studied,
@@ -1607,11 +1613,14 @@ function debounce(func, wait) {
       const tempDate = new Date(today);
       
       for (let i = 0; i < actualForecastDays; i++) {
-        const label = tempDate.toLocaleDateString(undefined, {
+        let label = tempDate.toLocaleDateString(undefined, {
           month: "short",
           day: "numeric",
           year: "numeric"
         });
+        if (SETTINGS.ENVIRONMENT === "dev") {
+          label += ` (${todayDayNumber + i})`;
+        }
         dateLabels.push(label);
         dateCounts.push(0);
         tempDate.setDate(tempDate.getDate() + 1);
@@ -1797,12 +1806,15 @@ function debounce(func, wait) {
         const date = new Date(startDate);
         date.setDate(date.getDate() + dayNumber);
         
-        const displayDate = date.toLocaleDateString(undefined, {
+        let displayDate = date.toLocaleDateString(undefined, {
           month: 'short',
           day: 'numeric',
           year: 'numeric'
         });
-        
+        if (SETTINGS.ENVIRONMENT === "dev") {
+          displayDate += ` (${todayDayNumber - i})`;
+        }        
+
         dateLabels.unshift(displayDate);
         dateCounts.unshift(0);
         dayMap.set(dayNumber, { index: actualPeriodDays - 1 - i, displayDate });
