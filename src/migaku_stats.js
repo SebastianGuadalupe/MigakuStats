@@ -150,10 +150,9 @@ function debounce(func, wait) {
       FROM review r
       JOIN card c ON r.cardId = c.id
       JOIN card_type ct ON c.cardTypeId = ct.id
-      WHERE ct.lang = ? AND r.day >= ? 
+      WHERE ct.lang = ? AND r.day >= ? AND r.del = 0 AND r.type IN (1, 2)
       GROUP BY day
-      ORDER BY day DESC
-      LIMIT 30`,
+      ORDER BY day DESC`,
     STUDY_STATS_QUERY: `
       SELECT 
         COUNT(DISTINCT r.day) as days_studied,
@@ -298,8 +297,6 @@ function debounce(func, wait) {
     /* Make sure canvas elements are visible */
     canvas {
         display: block;
-        width: 100% !important;
-        height: 100% !important;
         position: absolute;
         top: 0;
         left: 0;
@@ -1524,7 +1521,7 @@ function debounce(func, wait) {
       const startDate = new Date(CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY);
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const todayDayNumber = Math.floor((today - startDate) / (1000 * 60 * 60 * 24)) + 1;
+      const todayDayNumber = Math.floor((today - startDate) / (1000 * 60 * 60 * 24));
       const endDayNumber = todayDayNumber + (CHART_CONFIG.FORECAST_DAYS - 1);
       
       logFn(`Calculating due cards between day ${todayDayNumber} and ${endDayNumber}`);
@@ -1672,7 +1669,8 @@ function debounce(func, wait) {
       const startDate = new Date(CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY);
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const todayDayNumber = Math.floor((today - startDate) / (1000 * 60 * 60 * 24)) + 1;
+      const todayDayNumber = Math.floor((today - startDate) / (1000 * 60 * 60 * 24));
+      logFn(`Today's day number: ${todayDayNumber}`);
       const thirtyDaysAgoDayNumber = todayDayNumber - 30;
       
       logFn(`Fetching review history since day ${thirtyDaysAgoDayNumber} (${todayDayNumber - thirtyDaysAgoDayNumber} days ago)`);
@@ -1697,7 +1695,7 @@ function debounce(func, wait) {
       for (let i = 0; i < 30; i++) {
         const dayNumber = todayDayNumber - i;
         const date = new Date(startDate);
-        date.setDate(date.getDate() + dayNumber - 1);
+        date.setDate(date.getDate() + dayNumber);
         
         const displayDate = date.toLocaleDateString(undefined, {
           month: 'short',
@@ -1745,7 +1743,7 @@ function debounce(func, wait) {
       const startDate = new Date(CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY);
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const todayDayNumber = Math.floor((today - startDate) / (1000 * 60 * 60 * 24)) + 1;
+      const todayDayNumber = Math.floor((today - startDate) / (1000 * 60 * 60 * 24));
       const yearAgoDayNumber = todayDayNumber - 365;
       
       logFn(`Fetching study stats since day ${yearAgoDayNumber} (${todayDayNumber - yearAgoDayNumber} days ago)`);
