@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Migaku Custom Stats
 // @namespace    http://tampermonkey.net/
-// @version      0.1.2
+// @version      0.1.3
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
 // @match        https://study.migaku.com
@@ -53,7 +53,6 @@ function debounce(func, wait) {
     TARGET_ELEMENT: ".UiPageLayout",
     MIGAKU_MAIN: ".MIGAKU-SRS[data-mgk-lang-selected]",
     VUE_CONTAINER_ID: "migaku-custom-stats-vue-container",
-    LEGACY_CONTAINER_ID: "migaku-custom-stats",
     ERROR_CONTAINER_ID: "migaku-custom-stats-error"
   };
 
@@ -143,7 +142,28 @@ function debounce(func, wait) {
       JOIN card_type ct ON c.cardTypeId = ct.id
       WHERE ct.lang = ? AND c.del = 0 AND c.interval > 0
       GROUP BY interval_group
-      ORDER BY interval_group`
+      ORDER BY interval_group`,
+    REVIEW_HISTORY_QUERY: `
+      SELECT 
+        day,
+        COUNT(*) as review_count
+      FROM review r
+      JOIN card c ON r.cardId = c.id
+      JOIN card_type ct ON c.cardTypeId = ct.id
+      WHERE ct.lang = ? AND r.day >= ? 
+      GROUP BY day
+      ORDER BY day DESC
+      LIMIT 30`,
+    STUDY_STATS_QUERY: `
+      SELECT 
+        COUNT(DISTINCT r.day) as days_studied,
+        COUNT(*) as total_reviews,
+        ROUND(COUNT(*) * 1.0 / COUNT(DISTINCT r.day), 1) as avg_reviews_per_day
+      FROM review r
+      JOIN card c ON r.cardId = c.id
+      JOIN card_type ct ON c.cardTypeId = ct.id
+      WHERE ct.lang = ? 
+      AND r.day >= ?`
   };
 
   // UI/Display texts
@@ -173,6 +193,8 @@ function debounce(func, wait) {
     lastWordStats: null,
     lastDueStats: null,
     lastIntervalStats: null,
+    lastReviewStats: null,
+    lastStudyStats: null,
     availableDecks: []
   };
 
@@ -226,11 +248,47 @@ function debounce(func, wait) {
         padding: 8px;
         margin: 8px 0;
     }
+    
+    .MCS__reviewchart {
+        height: 300px;
+        width: 100%;
+        position: relative;
+        padding: 8px;
+        margin: 8px 0;
+    }
 
     .MCS__wordcount__piechart {
         height: 200px;
         width: 200px;
         position: relative;
+    }
+    
+    .MCS__study-stats {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        margin: 16px 0;
+    }
+    
+    .MCS__stat-box {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+        background: rgba(0, 199, 164, 0.05);
+        border-radius: 8px;
+    }
+    
+    .MCS__stat-value {
+        font-size: 24px;
+        font-weight: bold;
+        margin-bottom: 8px;
+    }
+    
+    .MCS__stat-label {
+        font-size: 14px;
+        text-align: center;
     }
 
     .MCS__deck-selector {
@@ -253,6 +311,7 @@ function debounce(func, wait) {
       backgroundElevation1: "#202047",
       backgroundElevation2: "#2b2b60",
       accent1: "rgba(178, 114, 255, 1)",
+      accent3: "#fba335",
       accent1Transparent: "rgba(178, 114, 255, 0.12)",
       textColor: "rgba(255, 255, 255, 1)",
       gridColor: "rgba(255, 255, 255, 0.1)",
@@ -266,7 +325,8 @@ function debounce(func, wait) {
       backgroundElevation1: "#fff",
       backgroundElevation2: "#fff",
       accent1: "#672fc3",
-      accent1LowContrast: "#ede3ff",
+      accent3: "#ff9345",
+      accent1Transparent: "rgba(103, 47, 195, 0.12)",
       textColor: "rgba(0, 0, 90, 1)",
       gridColor: "rgba(0, 0, 0, 0.1)",
       knownColor: "rgba(0, 199, 164, 1)",
@@ -294,6 +354,7 @@ function debounce(func, wait) {
     wordChartInstance: null,
     dueChartInstance: null,
     intervalChartInstance: null,
+    reviewChartInstance: null,
     
     resetCharts() {
       this.destroyCharts();
@@ -426,6 +487,156 @@ function debounce(func, wait) {
           return this.wordChartInstance;
         } catch (recreateError) {
           logFn("Failed to recreate word chart:", recreateError);
+          return null;
+        }
+      }
+    },
+    
+    /**
+     * Updates or creates a review history bar chart
+     * @param {HTMLCanvasElement} canvas - The canvas element to render on
+     * @param {Object} reviewStats - The review statistics data
+     * @param {Function} logFn - Logging function
+     * @returns {Object|null} - Chart instance or null if failed
+     */
+    createReviewHistoryChart(canvas, reviewStats, logFn) {
+      if (!canvas) {
+        logFn("Review history chart creation aborted: canvas is undefined");
+        return null;
+      }
+      
+      if (!reviewStats || !reviewStats.labels || !reviewStats.counts) {
+        logFn("Review history chart creation aborted: reviewStats data is missing", reviewStats);
+        return null;
+      }
+      
+      const themeColors = getThemeColors();
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        logFn("Failed to get review history chart canvas context");
+        return null;
+      }
+      
+      const chartConfig = {
+        type: 'bar',
+        data: {
+          labels: reviewStats.labels,
+          datasets: [
+            {
+              label: 'Reviews',
+              data: reviewStats.counts,
+              backgroundColor: themeColors.accent3,
+              borderWidth: 0,
+              borderRadius: 4,
+              order: 1
+            }
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: {
+            duration: 800,
+            easing: 'easeOutQuart'
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              title: {
+                display: true,
+                text: 'Number of Reviews',
+                color: themeColors.textColor
+              },
+              ticks: {
+                color: themeColors.textColor,
+                precision: 0,
+              },
+              grid: {
+                color: themeColors.gridColor,
+              },
+            },
+            x: {
+              title: {
+                display: true,
+                text: 'Date',
+                color: themeColors.textColor
+              },
+              ticks: {
+                color: themeColors.textColor,
+                maxRotation: 45,
+                minRotation: 45,
+              },
+              grid: {
+                color: themeColors.gridColor,
+              },
+            },
+          },
+          plugins: {
+            legend: {
+              display: false,
+            },
+            tooltip: {
+              mode: 'index',
+              callbacks: {
+                title: function(tooltipItems) {
+                  return tooltipItems[0].label;
+                },
+                label: function(context) {
+                  const value = context.parsed.y;
+                  return `Reviews: ${value}`;
+                }
+              },
+              backgroundColor: themeColors.backgroundElevation2,
+              titleFontColor: themeColors.textColor,
+              caretSize: CHART_CONFIG.TOOLTIP_CONFIG.CARET_SIZE,
+              padding: CHART_CONFIG.TOOLTIP_CONFIG.PADDING,
+              cornerRadius: CHART_CONFIG.TOOLTIP_CONFIG.CORNER_RADIUS,
+              boxPadding: CHART_CONFIG.TOOLTIP_CONFIG.BOX_PADDING,
+              multiKeyBackground: themeColors.backgroundElevation1,
+              bodyColor: themeColors.textColor,
+              titleColor: themeColors.textColor,
+            }
+          },
+        }
+      };
+      
+      try {
+        if (this.reviewChartInstance) {
+          logFn("Updating existing review history chart with new data");
+          
+          this.reviewChartInstance.data.labels = reviewStats.labels;
+          this.reviewChartInstance.data.datasets[0].data = reviewStats.counts;
+          this.reviewChartInstance.data.datasets[0].backgroundColor = themeColors.accent3;
+          
+          this.reviewChartInstance.options.scales.y.ticks.color = themeColors.textColor;
+          this.reviewChartInstance.options.scales.y.title.color = themeColors.textColor;
+          this.reviewChartInstance.options.scales.y.grid.color = themeColors.gridColor;
+          this.reviewChartInstance.options.scales.x.ticks.color = themeColors.textColor;
+          this.reviewChartInstance.options.scales.x.title.color = themeColors.textColor;
+          this.reviewChartInstance.options.scales.x.grid.color = themeColors.gridColor;
+          this.reviewChartInstance.options.plugins.tooltip.backgroundColor = themeColors.backgroundElevation2;
+          this.reviewChartInstance.options.plugins.tooltip.bodyColor = themeColors.textColor;
+          this.reviewChartInstance.options.plugins.tooltip.titleColor = themeColors.textColor;
+          
+          this.reviewChartInstance.update();
+          return this.reviewChartInstance;
+        }
+        
+        this.reviewChartInstance = new Chart(ctx, chartConfig);
+        logFn("Review history chart created successfully");
+        return this.reviewChartInstance;
+      } catch (error) {
+        logFn("Error in review history chart creation/update:", error);
+        
+        try {
+          if (this.reviewChartInstance) {
+            this.reviewChartInstance.destroy();
+          }
+          this.reviewChartInstance = new Chart(ctx, chartConfig);
+          logFn("Review history chart recreated after error");
+          return this.reviewChartInstance;
+        } catch (recreateError) {
+          logFn("Failed to recreate review history chart:", recreateError);
           return null;
         }
       }
@@ -895,20 +1106,23 @@ function debounce(func, wait) {
      * @param {HTMLCanvasElement} options.wordCanvas - Word chart canvas
      * @param {HTMLCanvasElement} options.dueCanvas - Due chart canvas
      * @param {HTMLCanvasElement} options.intervalCanvas - Interval chart canvas
+     * @param {HTMLCanvasElement} options.reviewCanvas - Review history chart canvas
      * @param {Object} options.wordStats - Word statistics data
      * @param {Object} options.dueStats - Due statistics data
      * @param {Object} options.intervalStats - Interval statistics data
+     * @param {Object} options.reviewStats - Review history statistics data
      * @param {Function} options.onComplete - Callback after charts are rendered
      * @param {Function} options.logFn - Logging function
      */
     updateCharts(options) {
-      const { wordCanvas, dueCanvas, intervalCanvas, wordStats, dueStats, intervalStats, onComplete, logFn } = options;
+      const { wordCanvas, dueCanvas, intervalCanvas, reviewCanvas, wordStats, dueStats, intervalStats, reviewStats, onComplete, logFn } = options;
       
       logFn("Chart update triggered");
       
       let wordChartSuccess = false;
       let dueChartSuccess = false;
       let intervalChartSuccess = false;
+      let reviewChartSuccess = false;
       
       if (wordCanvas && wordStats) {
         wordChartSuccess = !!this.createWordChart(wordCanvas, wordStats, logFn);
@@ -922,11 +1136,16 @@ function debounce(func, wait) {
         intervalChartSuccess = !!this.createIntervalChart(intervalCanvas, intervalStats, logFn);
       }
       
+      if (reviewCanvas && reviewStats && reviewStats.labels && reviewStats.counts) {
+        reviewChartSuccess = !!this.createReviewHistoryChart(reviewCanvas, reviewStats, logFn);
+      }
+      
       if (onComplete) {
         onComplete({
           wordChartSuccess,
           dueChartSuccess,
-          intervalChartSuccess
+          intervalChartSuccess,
+          reviewChartSuccess
         });
       }
     },
@@ -956,6 +1175,15 @@ function debounce(func, wait) {
           this.intervalChartInstance = null;
         } catch (e) {
           console.error("Error destroying interval chart instance:", e);
+        }
+      }
+      
+      if (this.reviewChartInstance) {
+        try {
+          this.reviewChartInstance.destroy();
+          this.reviewChartInstance = null;
+        } catch (e) {
+          console.error("Error destroying review chart instance:", e);
         }
       }
     }
@@ -1102,6 +1330,8 @@ function debounce(func, wait) {
       dbState.lastWordStats = null;
       dbState.lastDueStats = null;
       dbState.lastIntervalStats = null;
+      dbState.lastReviewStats = null;
+      dbState.lastStudyStats = null;
       await displayCustomStats("Error: Could not determine selected language. Please reload the page.")
         .catch((e) => extensionLog("Failed to display language error", e));
       appState.isProcessing = false;
@@ -1126,6 +1356,11 @@ function debounce(func, wait) {
       appState.selectedDeckId = SETTINGS.DEFAULT_DECK_ID;
       extensionLog(`Language changed from "${appState.selectedLanguage}" to "${currentLanguage}". Reset deck to "${UI_TEXTS.ALL_DECKS}".`);
       ChartManager.resetCharts();
+      dbState.lastWordStats = null;
+      dbState.lastDueStats = null;
+      dbState.lastIntervalStats = null;
+      dbState.lastReviewStats = null;
+      dbState.lastStudyStats = null;
     }
 
     appState.selectedLanguage = currentLanguage;
@@ -1143,6 +1378,8 @@ function debounce(func, wait) {
       dbState.lastWordStats = null;
       dbState.lastDueStats = null;
       dbState.lastIntervalStats = null;
+      dbState.lastReviewStats = null;
+      dbState.lastStudyStats = null;
       await displayCustomStats(`Error loading statistics: ${error.message}. Please try again later.`)
         .catch((e) => extensionLog("Failed to display run error", e));
     } finally {
@@ -1413,6 +1650,140 @@ function debounce(func, wait) {
     }
   }
 
+  /**
+   * Fetches review history statistics for the selected language and deck
+   * @param {Object} dbInstance - SQL.js database instance
+   * @param {string} language - Selected language
+   * @param {string} deckId - Selected deck ID
+   * @param {Function} logFn - Logging function
+   * @returns {Object|null} - Review history statistics or null if failed
+   */
+  function fetchReviewHistory(dbInstance, language, deckId, logFn) {
+    try {
+      const startDate = new Date(CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayDayNumber = Math.floor((today - startDate) / (1000 * 60 * 60 * 24)) + 1;
+      const thirtyDaysAgoDayNumber = todayDayNumber - 30;
+      
+      logFn(`Fetching review history since day ${thirtyDaysAgoDayNumber} (${todayDayNumber - thirtyDaysAgoDayNumber} days ago)`);
+      
+      let reviewQuery = SQL_QUERIES.REVIEW_HISTORY_QUERY;
+      let reviewQueryParams = [language, thirtyDaysAgoDayNumber];
+      
+      if (deckId !== SETTINGS.DEFAULT_DECK_ID) {
+        reviewQuery = reviewQuery.replace(
+          "WHERE ct.lang = ? AND r.day >= ?", 
+          "WHERE ct.lang = ? AND r.day >= ? AND c.deckId = ?"
+        );
+        reviewQueryParams.push(deckId);
+      }
+      
+      const reviewResults = dbInstance.exec(reviewQuery, reviewQueryParams);
+      
+      const dateLabels = [];
+      const dateCounts = [];
+      const dayMap = new Map();
+      
+      for (let i = 0; i < 30; i++) {
+        const dayNumber = todayDayNumber - i;
+        const date = new Date(startDate);
+        date.setDate(date.getDate() + dayNumber - 1);
+        
+        const displayDate = date.toLocaleDateString(undefined, {
+          month: 'short',
+          day: 'numeric'
+        });
+        
+        dateLabels.unshift(displayDate);
+        dateCounts.unshift(0);
+        dayMap.set(dayNumber, { index: 29 - i, displayDate });
+      }
+      
+      if (reviewResults.length > 0 && reviewResults[0].values.length > 0) {
+        logFn("Review history query results:", reviewResults[0]);
+        
+        reviewResults[0].values.forEach(row => {
+          const dayNumber = row[0];
+          const count = row[1];
+          
+          if (dayMap.has(dayNumber)) {
+            const { index } = dayMap.get(dayNumber);
+            dateCounts[index] = count;
+          }
+        });
+      } else {
+        logFn("Review history query returned no results");
+      }
+      
+      return { labels: dateLabels, counts: dateCounts };
+    } catch (error) {
+      logFn("Error fetching review history:", error);
+      return null;
+    }
+  }
+  
+  /**
+   * Fetches study statistics for the selected language and deck
+   * @param {Object} dbInstance - SQL.js database instance
+   * @param {string} language - Selected language
+   * @param {string} deckId - Selected deck ID
+   * @param {Function} logFn - Logging function
+   * @returns {Object|null} - Study statistics or null if failed
+   */
+  function fetchStudyStats(dbInstance, language, deckId, logFn) {
+    try {
+      const startDate = new Date(CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayDayNumber = Math.floor((today - startDate) / (1000 * 60 * 60 * 24)) + 1;
+      const yearAgoDayNumber = todayDayNumber - 365;
+      
+      logFn(`Fetching study stats since day ${yearAgoDayNumber} (${todayDayNumber - yearAgoDayNumber} days ago)`);
+      
+      let studyQuery = SQL_QUERIES.STUDY_STATS_QUERY;
+      let studyQueryParams = [language, yearAgoDayNumber];
+      
+      if (deckId !== SETTINGS.DEFAULT_DECK_ID) {
+        studyQuery = studyQuery.replace(
+          "WHERE ct.lang = ? \n      AND r.day >= ?", 
+          "WHERE ct.lang = ? \n      AND r.day >= ? AND c.deckId = ?"
+        );
+        studyQueryParams.push(deckId);
+      }
+      
+      const studyResults = dbInstance.exec(studyQuery, studyQueryParams);
+      
+      if (studyResults.length > 0 && studyResults[0].values.length > 0) {
+        logFn("Study stats query results:", studyResults[0]);
+        
+        const days_studied = studyResults[0].values[0][0] || 0;
+        const total_reviews = studyResults[0].values[0][1] || 0;
+        const avg_reviews_per_day = studyResults[0].values[0][2] || 0;
+        
+        const daysStudiedPercent = Math.round((days_studied / 365) * 100);
+        
+        return {
+          days_studied,
+          days_studied_percent: daysStudiedPercent,
+          total_reviews,
+          avg_reviews_per_day
+        };
+      } else {
+        logFn("Study stats query returned no results");
+        return {
+          days_studied: 0,
+          days_studied_percent: 0,
+          total_reviews: 0,
+          avg_reviews_per_day: 0
+        };
+      }
+    } catch (error) {
+      logFn("Error fetching study stats:", error);
+      return null;
+    }
+  }
+
   async function accessMigakuData(db, vueInstance = null) {
     if (!db.objectStoreNames.contains(objectStoreName)) {
       extensionLog(
@@ -1429,6 +1800,8 @@ function debounce(func, wait) {
           wordStats: null,
           dueStats: null,
           intervalStats: null,
+          reviewStats: null,
+          studyStats: null,
           message: errorMessage,
           isError: true
         });
@@ -1461,6 +1834,8 @@ function debounce(func, wait) {
             wordStats: null,
             dueStats: null,
             intervalStats: null,
+            reviewStats: null,
+            studyStats: null,
             message: errorMessage,
             isError: true
           });
@@ -1502,6 +1877,8 @@ function debounce(func, wait) {
                 wordStats: null,
                 dueStats: null,
                 intervalStats: null,
+                reviewStats: null,
+                studyStats: null,
                 message: errorMessage,
                 isError: true
               });
@@ -1530,6 +1907,8 @@ function debounce(func, wait) {
                 wordStats: null,
                 dueStats: null,
                 intervalStats: null,
+                reviewStats: null,
+                studyStats: null,
                 message: errorMessage,
                 isError: true
               });
@@ -1556,6 +1935,8 @@ function debounce(func, wait) {
                 wordStats: null,
                 dueStats: null,
                 intervalStats: null,
+                reviewStats: null,
+                studyStats: null,
                 message: errorMessage,
                 isError: true
               });
@@ -1604,16 +1985,34 @@ function debounce(func, wait) {
               appState.selectedDeckId, 
               extensionLog
             );
+            
+            const reviewHistoryData = fetchReviewHistory(
+              dbInstance,
+              appState.selectedLanguage,
+              appState.selectedDeckId,
+              extensionLog
+            );
+            
+            const studyStatsData = fetchStudyStats(
+              dbInstance,
+              appState.selectedLanguage,
+              appState.selectedDeckId,
+              extensionLog
+            );
 
             dbState.lastWordStats = wordValues;
             dbState.lastDueStats = dueData;
             dbState.lastIntervalStats = intervalData;
+            dbState.lastReviewStats = reviewHistoryData;
+            dbState.lastStudyStats = studyStatsData;
 
             if (vueInstance) {
               vueInstance.updateData({
                 wordStats: wordValues,
                 dueStats: dueData,
                 intervalStats: intervalData,
+                reviewStats: reviewHistoryData,
+                studyStats: studyStatsData,
                 availableDecks: dbState.availableDecks,
                 isError: false,
                 message: ""
@@ -1626,7 +2025,9 @@ function debounce(func, wait) {
               await displayCustomStats({
                 wordStats: wordValues,
                 dueStats: dueData,
-                intervalStats: intervalData
+                intervalStats: intervalData,
+                reviewStats: reviewHistoryData,
+                studyStats: studyStatsData
               });
             } else {
               extensionLog(
@@ -1641,12 +2042,16 @@ function debounce(func, wait) {
             dbState.lastWordStats = null;
             dbState.lastDueStats = null;
             dbState.lastIntervalStats = null;
+            dbState.lastReviewStats = null;
+            dbState.lastStudyStats = null;
             
             if (vueInstance) {
               vueInstance.updateData({
                 wordStats: null,
                 dueStats: null,
                 intervalStats: null,
+                reviewStats: null,
+                studyStats: null,
                 message: `Processing error: ${error.message}`,
                 isError: true
               });
@@ -1667,12 +2072,16 @@ function debounce(func, wait) {
           dbState.lastWordStats = null;
           dbState.lastDueStats = null;
           dbState.lastIntervalStats = null;
+          dbState.lastReviewStats = null;
+          dbState.lastStudyStats = null;
           
           if (vueInstance) {
             vueInstance.updateData({
               wordStats: null,
               dueStats: null,
               intervalStats: null,
+              reviewStats: null,
+              studyStats: null,
               message: `Internal script error: ${outerError.message}`,
               isError: true
             });
@@ -1975,6 +2384,81 @@ function debounce(func, wait) {
       </div>
     `
   };
+  
+  const StudyStatsCard = {
+    props: {
+      studyStats: Object,
+      componentHash: String
+    },
+    template: `
+      <div v-if="studyStats" v-bind:[componentHash]="true" class="MCS__study-stats-card">
+        <div v-bind:[componentHash]="true" class="Statistic__card__header">
+          <h3 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading3 -heading">Study Statistics</h3>
+        </div>
+        <div v-bind:[componentHash]="true" class="MCS__study-stats">
+          <div v-bind:[componentHash]="true" class="MCS__stat-box">
+            <div v-bind:[componentHash]="true" class="MCS__stat-value">{{ studyStats.days_studied_percent }}%</div>
+            <div v-bind:[componentHash]="true" class="MCS__stat-label">Days Studied (Last Year)</div>
+          </div>
+          <div v-bind:[componentHash]="true" class="MCS__stat-box">
+            <div v-bind:[componentHash]="true" class="MCS__stat-value">{{ studyStats.total_reviews.toLocaleString() }}</div>
+            <div v-bind:[componentHash]="true" class="MCS__stat-label">Total Reviews</div>
+          </div>
+          <div v-bind:[componentHash]="true" class="MCS__stat-box">
+            <div v-bind:[componentHash]="true" class="MCS__stat-value">{{ studyStats.avg_reviews_per_day }}</div>
+            <div v-bind:[componentHash]="true" class="MCS__stat-label">Avg. Reviews per Study Day</div>
+          </div>
+        </div>
+      </div>
+      <div v-else v-bind:[componentHash]="true" class="MCS__study-stats-card">
+        <div v-bind:[componentHash]="true" class="Statistic__card__header">
+          <h3 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading3 -heading">Study Statistics</h3>
+        </div>
+        <p v-bind:[componentHash]="true" class="UiTypo UiTypo__body2">Could not load study statistics data.</p>
+      </div>
+    `
+  };
+  
+  const ReviewHistoryCard = {
+    props: {
+      reviewStats: Object,
+      componentHash: String,
+      chartRef: String
+    },
+    mounted() {
+      this.$nextTick(() => {
+        if (this.$refs.canvas) {
+          this.$emit('canvas-mounted', this.$refs.canvas);
+        }
+      });
+    },
+    updated() {
+      this.$nextTick(() => {
+        if (this.$refs.canvas) {
+          this.$emit('canvas-mounted', this.$refs.canvas);
+        }
+      });
+    },
+    beforeUnmount() {
+      this.$emit('canvas-unmounted');
+    },
+    template: `
+      <div v-if="reviewStats && reviewStats.labels && reviewStats.counts" v-bind:[componentHash]="true" class="MCS__review-history-card">
+        <div v-bind:[componentHash]="true" class="Statistic__card__header">
+          <h3 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading3 -heading">Review History (Last 30 Days)</h3>
+        </div>
+        <div v-bind:[componentHash]="true" class="MCS__reviewchart">
+          <canvas ref="canvas"></canvas>
+        </div>
+      </div>
+      <div v-else v-bind:[componentHash]="true" class="MCS__review-history-card">
+        <div v-bind:[componentHash]="true" class="Statistic__card__header">
+          <h3 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading3 -heading">Review History (Last 30 Days)</h3>
+        </div>
+        <p v-bind:[componentHash]="true" class="UiTypo UiTypo__body2">Could not load review history data.</p>
+      </div>
+    `
+  };
 
   /**
    * Prepares and displays the Vue component with stats data
@@ -2016,6 +2500,8 @@ function debounce(func, wait) {
         dbState.lastWordStats = null;
         dbState.lastDueStats = null;
         dbState.lastIntervalStats = null;
+        dbState.lastReviewStats = null;
+        dbState.lastStudyStats = null;
       }
     } else if (data && (data.wordStats || data.dueStats || data.intervalStats)) {
       wordStats = data.wordStats;
@@ -2033,6 +2519,8 @@ function debounce(func, wait) {
       dbState.lastWordStats = null;
       dbState.lastDueStats = null;
       dbState.lastIntervalStats = null;
+      dbState.lastReviewStats = null;
+      dbState.lastStudyStats = null;
     }
 
     const vueContainer = document.createElement('div');
@@ -2045,13 +2533,17 @@ function debounce(func, wait) {
         WordStatsCard,
         DueStatsCard,
         MessageCard,
-        IntervalStatsCard
+        IntervalStatsCard,
+        ReviewHistoryCard,
+        StudyStatsCard
       },
       data() {
         return {
           wordStats,
           dueStats,
           intervalStats,
+          reviewStats: data && data.reviewStats || null,
+          studyStats: data && data.studyStats || null,
           isError,
           message,
           availableDecks: dbState.availableDecks,
@@ -2062,9 +2554,11 @@ function debounce(func, wait) {
           wordChartRendered: false,
           dueChartRendered: false,
           intervalChartRendered: false,
+          reviewChartRendered: false,
           wordCanvas: null,
           dueCanvas: null,
-          intervalCanvas: null
+          intervalCanvas: null,
+          reviewCanvas: null
         };
       },
       methods: {
@@ -2090,6 +2584,10 @@ function debounce(func, wait) {
           this.intervalCanvas = canvas;
           this.updateCharts();
         },
+        handleReviewCanvasMounted(canvas) {
+          this.reviewCanvas = canvas;
+          this.updateCharts();
+        },
         handleWordCanvasUnmounted() {
           extensionLog("Word canvas unmounted, cleaning up");
           this.wordCanvas = null;
@@ -2105,6 +2603,11 @@ function debounce(func, wait) {
           this.intervalCanvas = null;
           this.intervalChartRendered = false;
         },
+        handleReviewCanvasUnmounted() {
+          extensionLog("Review canvas unmounted, cleaning up");
+          this.reviewCanvas = null;
+          this.reviewChartRendered = false;
+        },
         updateCharts() {
           this.debouncedUpdateCharts();
         },
@@ -2112,6 +2615,7 @@ function debounce(func, wait) {
           this.renderWordChart();
           this.renderDueChart();
           this.renderIntervalChart();
+          this.renderReviewChart();
         },
         renderWordChart() {
           if (this.wordChartRendered || !this.wordCanvas || !this.wordStats) {
@@ -2152,26 +2656,43 @@ function debounce(func, wait) {
             extensionLog
           );
         },
+        renderReviewChart() {
+          if (this.reviewChartRendered || !this.reviewCanvas || !this.reviewStats) {
+            return;
+          }
+          
+          this.reviewChartRendered = true;
+          
+          ChartManager.createReviewHistoryChart(
+            this.reviewCanvas,
+            this.reviewStats,
+            extensionLog
+          );
+        },
         debouncedUpdateCharts: debounce(function() {
           extensionLog("Debounced chart update triggered");
           
           this.wordChartRendered = false;
           this.dueChartRendered = false;
           this.intervalChartRendered = false;
+          this.reviewChartRendered = false;
           
           this.$nextTick(() => {
             ChartManager.updateCharts({
               wordCanvas: this.wordCanvas,
               dueCanvas: this.dueCanvas,
               intervalCanvas: this.intervalCanvas,
+              reviewCanvas: this.reviewCanvas,
               wordStats: this.wordStats,
               dueStats: this.dueStats,
               intervalStats: this.intervalStats,
+              reviewStats: this.reviewStats,
               logFn: extensionLog,
               onComplete: (results) => {
                 this.wordChartRendered = results.wordChartSuccess;
                 this.dueChartRendered = results.dueChartSuccess;
                 this.intervalChartRendered = results.intervalChartSuccess;
+                this.reviewChartRendered = results.reviewChartSuccess;
               }
             });
           });
@@ -2191,6 +2712,12 @@ function debounce(func, wait) {
           }
           if (newData.intervalStats !== undefined) {
             this.intervalStats = newData.intervalStats;
+          }
+          if (newData.reviewStats !== undefined) {
+            this.reviewStats = newData.reviewStats;
+          }
+          if (newData.studyStats !== undefined) {
+            this.studyStats = newData.studyStats;
           }
           if (newData.availableDecks !== undefined) {
             this.availableDecks = newData.availableDecks;
@@ -2234,11 +2761,20 @@ function debounce(func, wait) {
           },
           deep: true
         },
+        reviewStats: {
+          handler() {
+            extensionLog("reviewStats changed, scheduling chart update");
+            this.reviewChartRendered = false;
+            this.$nextTick(this.debouncedUpdateCharts);
+          },
+          deep: true
+        },
         currentTheme() {
           extensionLog("Theme changed, scheduling chart update");
           this.wordChartRendered = false;
           this.dueChartRendered = false;
           this.intervalChartRendered = false;
+          this.reviewChartRendered = false;
           this.$nextTick(this.debouncedUpdateCharts);
         },
         selectedLanguage(newLang, oldLang) {
@@ -2247,9 +2783,12 @@ function debounce(func, wait) {
             ChartManager.resetCharts();
             this.wordCanvas = null;
             this.dueCanvas = null;
+            this.intervalCanvas = null;
+            this.reviewCanvas = null;
             this.wordChartRendered = false;
             this.dueChartRendered = false;
             this.intervalChartRendered = false;
+            this.reviewChartRendered = false;
           }
         }
       },
@@ -2266,6 +2805,7 @@ function debounce(func, wait) {
         this.wordCanvas = null;
         this.dueCanvas = null;
         this.intervalCanvas = null;
+        this.reviewCanvas = null;
       },
       template: `
         <div class="MCS__container" :class="{'UiCard -lesson Statistic__card': isError || message}">
@@ -2312,6 +2852,21 @@ function debounce(func, wait) {
                 chart-ref="intervalChart"
                 @canvas-mounted="handleIntervalCanvasMounted"
                 @canvas-unmounted="handleIntervalCanvasUnmounted"
+              />
+              
+              <!-- Study Stats -->
+              <study-stats-card 
+                :study-stats="studyStats" 
+                :component-hash="componentHash"
+              />
+              
+              <!-- Review History -->
+              <review-history-card 
+                :review-stats="reviewStats" 
+                :component-hash="componentHash" 
+                chart-ref="reviewChart"
+                @canvas-mounted="handleReviewCanvasMounted"
+                @canvas-unmounted="handleReviewCanvasUnmounted"
               />
             </div>
           </template>
@@ -2390,6 +2945,8 @@ function debounce(func, wait) {
             wordStats: null,
             dueStats: null,
             intervalStats: null,
+            reviewStats: null,
+            studyStats: null,
             message: errorMessage,
             isError: true
           });
