@@ -134,7 +134,16 @@ function debounce(func, wait) {
         COUNT(*) as count
       FROM card c
       JOIN card_type ct ON c.cardTypeId = ct.id
-      WHERE ct.lang = ? AND c.due BETWEEN ? AND ?`
+      WHERE ct.lang = ? AND c.due BETWEEN ? AND ?`,
+    INTERVAL_QUERY: `
+      SELECT
+        interval as interval_group,
+        COUNT(*) as count
+      FROM card c
+      JOIN card_type ct ON c.cardTypeId = ct.id
+      WHERE ct.lang = ? AND c.del = 0 AND c.interval > 0
+      GROUP BY interval_group
+      ORDER BY interval_group`
   };
 
   // UI/Display texts
@@ -163,12 +172,14 @@ function debounce(func, wait) {
     migakuDB: null,
     lastWordStats: null,
     lastDueStats: null,
+    lastIntervalStats: null,
     availableDecks: []
   };
 
   const chartState = {
     isRenderingWord: false,
     isRenderingDue: false,
+    isRenderingInterval: false,
     pendingRenderRequest: null
   };
 
@@ -208,6 +219,14 @@ function debounce(func, wait) {
         margin: 8px 0;
     }
 
+    .MCS__intervalchart {
+        height: 300px;
+        width: 100%;
+        position: relative;
+        padding: 8px;
+        margin: 8px 0;
+    }
+
     .MCS__wordcount__piechart {
         height: 200px;
         width: 200px;
@@ -233,6 +252,9 @@ function debounce(func, wait) {
     dark: {
       backgroundElevation1: "#202047",
       backgroundElevation2: "#2b2b60",
+      accent1: "#b272ff",
+      accent1HighContrast: "#d0b2ff",
+      accent1LowContrast: "#493085",
       textColor: "rgba(255, 255, 255, 1)",
       gridColor: "rgba(255, 255, 255, 0.1)",
       knownColor: "rgba(0, 199, 164, 1)",
@@ -244,6 +266,8 @@ function debounce(func, wait) {
     light: {
       backgroundElevation1: "#fff",
       backgroundElevation2: "#fff",
+      accent1: "#672fc3",
+      accent1LowContrast: "#ede3ff",
       textColor: "rgba(0, 0, 90, 1)",
       gridColor: "rgba(0, 0, 0, 0.1)",
       knownColor: "rgba(0, 199, 164, 1)",
@@ -270,6 +294,7 @@ function debounce(func, wait) {
   const ChartManager = {
     wordChartInstance: null,
     dueChartInstance: null,
+    intervalChartInstance: null,
     
     resetCharts() {
       this.destroyCharts();
@@ -534,22 +559,234 @@ function debounce(func, wait) {
     },
     
     /**
-     * Updates both charts with new data and theme
+     * Updates or creates a review intervals bar chart
+     * @param {HTMLCanvasElement} canvas - The canvas element to render on
+     * @param {Object} intervalStats - The interval statistics data
+     * @param {Function} logFn - Logging function
+     * @returns {Object|null} - Chart instance or null if failed
+     */
+    createIntervalChart(canvas, intervalStats, logFn) {
+      if (!canvas) {
+        logFn("Interval chart creation aborted: canvas is undefined");
+        return null;
+      }
+      
+      if (!intervalStats || !intervalStats.labels || !intervalStats.counts) {
+        logFn("Interval chart creation aborted: intervalStats data is missing", intervalStats);
+        return null;
+      }
+      
+      const themeColors = getThemeColors();
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        logFn("Failed to get interval chart canvas context");
+        return null;
+      }
+      
+      const cumulativeCounts = [];
+      let runningSum = 0;
+      for (let i = 0; i < intervalStats.counts.length; i++) {
+        runningSum += intervalStats.counts[i];
+        cumulativeCounts.push(runningSum);
+      }
+      
+      const maxCount = Math.max(...intervalStats.counts);
+      const maxCumulative = cumulativeCounts[cumulativeCounts.length - 1];
+      
+      const chartConfig = {
+        type: 'bar',
+        data: {
+          labels: intervalStats.labels,
+          datasets: [
+            {
+              label: 'Cards per Interval',
+              data: intervalStats.counts,
+              backgroundColor: themeColors.accent1,
+              borderWidth: 0,
+              borderRadius: 4,
+              order: 2
+            },
+            {
+              label: 'Cumulative Cards',
+              data: cumulativeCounts,
+              type: 'line',
+              borderColor: themeColors.accent1HighContrast,
+              backgroundColor: themeColors.accent1HighContrast,
+              borderWidth: 2,
+              pointStyle: false,
+              tension: 0.4,
+              yAxisID: 'y1',
+              order: 1
+            }
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: {
+              beginAtZero: true,
+              title: {
+                display: true,
+                text: 'Number of Cards',
+                color: themeColors.textColor
+              },
+              ticks: {
+                color: themeColors.textColor,
+                precision: 0,
+              },
+              grid: {
+                color: themeColors.gridColor,
+              },
+            },
+            y1: {
+              position: 'right',
+              beginAtZero: true,
+              title: {
+                display: true,
+                text: 'Cumulative Cards',
+                color: themeColors.textColor
+              },
+              ticks: {
+                color: themeColors.textColor,
+                precision: 0,
+              },
+              grid: {
+                drawOnChartArea: false,
+              },
+            },
+            x: {
+              title: {
+                display: true,
+                text: 'Review Interval (Days)',
+                color: themeColors.textColor
+              },
+              ticks: {
+                color: themeColors.textColor,
+                maxRotation: 45,
+                minRotation: 45,
+              },
+              grid: {
+                color: themeColors.gridColor,
+              },
+            },
+          },
+          plugins: {
+            legend: {
+              display: true,
+              position: 'top',
+              labels: {
+                color: themeColors.textColor,
+              }
+            },
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+              callbacks: {
+                title: function(tooltipItems) {
+                  return tooltipItems[0].label;
+                },
+                label: function(context) {
+                  const datasetLabel = context.dataset.label || '';
+                  const value = context.parsed.y;
+                  const total = cumulativeCounts[cumulativeCounts.length - 1];
+                  
+                  if (datasetLabel === 'Cards per Interval' && value > 0) {
+                    const percentage = ((value / total) * 100).toFixed(1);
+                    return `${datasetLabel}: ${value} (${percentage}%)`;
+                  }
+                  
+                  if (datasetLabel === 'Cumulative Cards') {
+                    const percentage = ((value / total) * 100).toFixed(1);
+                    return `${datasetLabel}: ${value} (${percentage}%)`;
+                  }
+                  
+                  return `${datasetLabel}: ${value}`;
+                }
+              },
+              backgroundColor: themeColors.backgroundElevation2,
+              titleFontColor: themeColors.textColor,
+              caretSize: CHART_CONFIG.TOOLTIP_CONFIG.CARET_SIZE,
+              padding: CHART_CONFIG.TOOLTIP_CONFIG.PADDING,
+              cornerRadius: CHART_CONFIG.TOOLTIP_CONFIG.CORNER_RADIUS,
+              boxPadding: CHART_CONFIG.TOOLTIP_CONFIG.BOX_PADDING,
+              multiKeyBackground: themeColors.backgroundElevation1,
+              bodyColor: themeColors.textColor,
+              titleColor: themeColors.textColor,
+            }
+          },
+        }
+      };
+      
+      try {
+        if (this.intervalChartInstance) {
+          logFn("Updating existing interval chart with new data");
+          
+          this.intervalChartInstance.data.labels = intervalStats.labels;
+          this.intervalChartInstance.data.datasets[0].data = intervalStats.counts;
+          this.intervalChartInstance.data.datasets[1].data = cumulativeCounts;
+          
+          this.intervalChartInstance.data.datasets[0].backgroundColor = themeColors.accent1;
+          this.intervalChartInstance.data.datasets[1].borderColor = themeColors.accent1HighContrast;
+          this.intervalChartInstance.data.datasets[1].backgroundColor = themeColors.accent1HighContrast;
+          
+          this.intervalChartInstance.options.scales.y.ticks.color = themeColors.textColor;
+          this.intervalChartInstance.options.scales.y.title.color = themeColors.textColor;
+          this.intervalChartInstance.options.scales.y.grid.color = themeColors.gridColor;
+          this.intervalChartInstance.options.scales.y1.ticks.color = themeColors.textColor;
+          this.intervalChartInstance.options.scales.y1.title.color = themeColors.textColor;
+          this.intervalChartInstance.options.scales.x.ticks.color = themeColors.textColor;
+          this.intervalChartInstance.options.scales.x.title.color = themeColors.textColor;
+          this.intervalChartInstance.options.scales.x.grid.color = themeColors.gridColor;
+          this.intervalChartInstance.options.plugins.legend.labels.color = themeColors.textColor;
+          this.intervalChartInstance.options.plugins.tooltip.backgroundColor = themeColors.backgroundElevation2;
+          this.intervalChartInstance.options.plugins.tooltip.bodyColor = themeColors.textColor;
+          this.intervalChartInstance.options.plugins.tooltip.titleColor = themeColors.textColor;
+          
+          this.intervalChartInstance.update();
+          return this.intervalChartInstance;
+        }
+        
+        this.intervalChartInstance = new Chart(ctx, chartConfig);
+        logFn("Interval chart created successfully");
+        return this.intervalChartInstance;
+      } catch (error) {
+        logFn("Error in interval chart creation/update:", error);
+        
+        try {
+          if (this.intervalChartInstance) {
+            this.intervalChartInstance.destroy();
+          }
+          this.intervalChartInstance = new Chart(ctx, chartConfig);
+          logFn("Interval chart recreated after error");
+          return this.intervalChartInstance;
+        } catch (recreateError) {
+          logFn("Failed to recreate interval chart:", recreateError);
+          return null;
+        }
+      }
+    },
+    
+    /**
+     * Updates charts with new data and theme
      * @param {Object} options - Configuration options
      * @param {HTMLCanvasElement} options.wordCanvas - Word chart canvas
      * @param {HTMLCanvasElement} options.dueCanvas - Due chart canvas
+     * @param {HTMLCanvasElement} options.intervalCanvas - Interval chart canvas
      * @param {Object} options.wordStats - Word statistics data
      * @param {Object} options.dueStats - Due statistics data
+     * @param {Object} options.intervalStats - Interval statistics data
      * @param {Function} options.onComplete - Callback after charts are rendered
      * @param {Function} options.logFn - Logging function
      */
     updateCharts(options) {
-      const { wordCanvas, dueCanvas, wordStats, dueStats, onComplete, logFn } = options;
+      const { wordCanvas, dueCanvas, intervalCanvas, wordStats, dueStats, intervalStats, onComplete, logFn } = options;
       
       logFn("Chart update triggered");
       
       let wordChartSuccess = false;
       let dueChartSuccess = false;
+      let intervalChartSuccess = false;
       
       if (wordCanvas && wordStats) {
         wordChartSuccess = !!this.createWordChart(wordCanvas, wordStats, logFn);
@@ -559,10 +796,15 @@ function debounce(func, wait) {
         dueChartSuccess = !!this.createDueChart(dueCanvas, dueStats, logFn);
       }
       
+      if (intervalCanvas && intervalStats && intervalStats.labels && intervalStats.counts) {
+        intervalChartSuccess = !!this.createIntervalChart(intervalCanvas, intervalStats, logFn);
+      }
+      
       if (onComplete) {
         onComplete({
           wordChartSuccess,
-          dueChartSuccess
+          dueChartSuccess,
+          intervalChartSuccess
         });
       }
     },
@@ -583,6 +825,15 @@ function debounce(func, wait) {
           this.dueChartInstance = null;
         } catch (e) {
           console.error("Error destroying due chart instance:", e);
+        }
+      }
+      
+      if (this.intervalChartInstance) {
+        try {
+          this.intervalChartInstance.destroy();
+          this.intervalChartInstance = null;
+        } catch (e) {
+          console.error("Error destroying interval chart instance:", e);
         }
       }
     }
@@ -728,6 +979,7 @@ function debounce(func, wait) {
       extensionLog("Could not read selected language attribute.", error);
       dbState.lastWordStats = null;
       dbState.lastDueStats = null;
+      dbState.lastIntervalStats = null;
       await displayCustomStats("Error: Could not determine selected language. Please reload the page.")
         .catch((e) => extensionLog("Failed to display language error", e));
       appState.isProcessing = false;
@@ -768,6 +1020,7 @@ function debounce(func, wait) {
       extensionLog("Error in runStatsLogic:", error);
       dbState.lastWordStats = null;
       dbState.lastDueStats = null;
+      dbState.lastIntervalStats = null;
       await displayCustomStats(`Error loading statistics: ${error.message}. Please try again later.`)
         .catch((e) => extensionLog("Failed to display run error", e));
     } finally {
@@ -963,6 +1216,81 @@ function debounce(func, wait) {
     }
   }
 
+  /**
+   * Fetches review interval statistics for the selected language and deck
+   * @param {Object} dbInstance - SQL.js database instance
+   * @param {string} language - Selected language
+   * @param {string} deckId - Selected deck ID
+   * @param {Function} logFn - Logging function
+   * @returns {Object|null} - Interval statistics or null if failed
+   */
+  function fetchIntervalStats(dbInstance, language, deckId, logFn) {
+    try {
+      let intervalQuery = SQL_QUERIES.INTERVAL_QUERY;
+      let intervalQueryParams = [language];
+      
+      if (deckId !== SETTINGS.DEFAULT_DECK_ID) {
+        intervalQuery = intervalQuery.replace("WHERE ct.lang = ? AND c.del = 0 AND c.interval > 0", 
+                                             "WHERE ct.lang = ? AND c.del = 0 AND c.interval > 0 AND c.deckId = ?");
+        intervalQueryParams.push(deckId);
+      }
+      
+      const intervalResults = dbInstance.exec(intervalQuery, intervalQueryParams);
+      
+      if (intervalResults.length > 0 && intervalResults[0].values.length > 0) {
+        logFn("Interval query results:", intervalResults[0]);
+        
+        const intervalMap = new Map();
+        let maxInterval = 0;
+        let totalCards = 0;
+        
+        intervalResults[0].values.forEach((row) => {
+          const interval = Math.round(row[0]);
+          const count = row[1];
+          intervalMap.set(interval, count);
+          maxInterval = Math.max(maxInterval, interval);
+          totalCards += count;
+        });
+        
+        const cutoffPercentile = 0.95; // 95th percentile (exclude top 5%)
+        let cumulativeCount = 0;
+        let cutoffInterval = maxInterval;
+        
+        const sortedIntervals = Array.from(intervalMap.keys()).sort((a, b) => a - b);
+        
+        for (const interval of sortedIntervals) {
+          cumulativeCount += intervalMap.get(interval);
+          const percentile = cumulativeCount / totalCards;
+          
+          if (percentile >= cutoffPercentile) {
+            cutoffInterval = interval;
+            break;
+          }
+        }
+        
+        logFn(`Excluding intervals beyond ${cutoffInterval} days (top 5% outliers)`);
+        
+        const intervalLabels = [];
+        const intervalCounts = [];
+        
+        for (let i = 1; i <= cutoffInterval; i++) {
+          let label = i === 1 ? "1 day" : `${i} days`;
+          
+          intervalLabels.push(label);
+          intervalCounts.push(intervalMap.has(i) ? intervalMap.get(i) : 0);
+        }
+        
+        return { labels: intervalLabels, counts: intervalCounts };
+      } else {
+        logFn("Interval query returned no results.");
+        return null;
+      }
+    } catch (error) {
+      logFn("Error fetching interval stats:", error);
+      return null;
+    }
+  }
+
   async function accessMigakuData(db, vueInstance = null) {
     if (!db.objectStoreNames.contains(objectStoreName)) {
       extensionLog(
@@ -978,6 +1306,7 @@ function debounce(func, wait) {
         vueInstance.updateData({
           wordStats: null,
           dueStats: null,
+          intervalStats: null,
           message: errorMessage,
           isError: true
         });
@@ -1009,6 +1338,7 @@ function debounce(func, wait) {
           vueInstance.updateData({
             wordStats: null,
             dueStats: null,
+            intervalStats: null,
             message: errorMessage,
             isError: true
           });
@@ -1049,6 +1379,7 @@ function debounce(func, wait) {
               vueInstance.updateData({
                 wordStats: null,
                 dueStats: null,
+                intervalStats: null,
                 message: errorMessage,
                 isError: true
               });
@@ -1076,6 +1407,7 @@ function debounce(func, wait) {
               vueInstance.updateData({
                 wordStats: null,
                 dueStats: null,
+                intervalStats: null,
                 message: errorMessage,
                 isError: true
               });
@@ -1101,6 +1433,7 @@ function debounce(func, wait) {
               vueInstance.updateData({
                 wordStats: null,
                 dueStats: null,
+                intervalStats: null,
                 message: errorMessage,
                 isError: true
               });
@@ -1142,14 +1475,23 @@ function debounce(func, wait) {
               appState.selectedDeckId, 
               extensionLog
             );
+            
+            const intervalData = fetchIntervalStats(
+              dbInstance, 
+              appState.selectedLanguage, 
+              appState.selectedDeckId, 
+              extensionLog
+            );
 
             dbState.lastWordStats = wordValues;
             dbState.lastDueStats = dueData;
+            dbState.lastIntervalStats = intervalData;
 
             if (vueInstance) {
               vueInstance.updateData({
                 wordStats: wordValues,
                 dueStats: dueData,
+                intervalStats: intervalData,
                 availableDecks: dbState.availableDecks,
                 isError: false,
                 message: ""
@@ -1158,14 +1500,15 @@ function debounce(func, wait) {
               return;
             }
 
-            if (wordValues || (dueData && dueData.labels.length > 0)) {
+            if (wordValues || (dueData && dueData.labels.length > 0) || (intervalData && intervalData.labels.length > 0)) {
               await displayCustomStats({
                 wordStats: wordValues,
                 dueStats: dueData,
+                intervalStats: intervalData
               });
             } else {
               extensionLog(
-                "Both queries returned no usable data. Displaying message."
+                "All queries returned no usable data. Displaying message."
               );
               await displayCustomStats(
                 UI_TEXTS.NO_DATA_MESSAGE
@@ -1175,11 +1518,13 @@ function debounce(func, wait) {
             extensionLog("Error during SQL execution/processing:", error);
             dbState.lastWordStats = null;
             dbState.lastDueStats = null;
+            dbState.lastIntervalStats = null;
             
             if (vueInstance) {
               vueInstance.updateData({
                 wordStats: null,
                 dueStats: null,
+                intervalStats: null,
                 message: `Processing error: ${error.message}`,
                 isError: true
               });
@@ -1199,11 +1544,13 @@ function debounce(func, wait) {
           extensionLog("Error in getAllRequest.onsuccess:", outerError);
           dbState.lastWordStats = null;
           dbState.lastDueStats = null;
+          dbState.lastIntervalStats = null;
           
           if (vueInstance) {
             vueInstance.updateData({
               wordStats: null,
               dueStats: null,
+              intervalStats: null,
               message: `Internal script error: ${outerError.message}`,
               isError: true
             });
@@ -1358,7 +1705,6 @@ function debounce(func, wait) {
       });
     },
     updated() {
-      // Re-emit the canvas reference if it exists but might have been reset
       this.$nextTick(() => {
         if (this.$refs.canvas) {
           this.$emit('canvas-mounted', this.$refs.canvas);
@@ -1366,7 +1712,6 @@ function debounce(func, wait) {
       });
     },
     beforeUnmount() {
-      // Notify parent that this component is being unmounted
       this.$emit('canvas-unmounted');
     },
     template: `
@@ -1423,7 +1768,6 @@ function debounce(func, wait) {
       });
     },
     updated() {
-      // Re-emit the canvas reference if it exists but might have been reset
       this.$nextTick(() => {
         if (this.$refs.canvas) {
           this.$emit('canvas-mounted', this.$refs.canvas);
@@ -1431,7 +1775,6 @@ function debounce(func, wait) {
       });
     },
     beforeUnmount() {
-      // Notify parent that this component is being unmounted
       this.$emit('canvas-unmounted');
     },
     template: `
@@ -1470,6 +1813,47 @@ function debounce(func, wait) {
     `
   };
 
+  const IntervalStatsCard = {
+    props: {
+      intervalStats: Object,
+      componentHash: String,
+      chartRef: String
+    },
+    mounted() {
+      this.$nextTick(() => {
+        if (this.$refs.canvas) {
+          this.$emit('canvas-mounted', this.$refs.canvas);
+        }
+      });
+    },
+    updated() {
+      this.$nextTick(() => {
+        if (this.$refs.canvas) {
+          this.$emit('canvas-mounted', this.$refs.canvas);
+        }
+      });
+    },
+    beforeUnmount() {
+      this.$emit('canvas-unmounted');
+    },
+    template: `
+      <div v-if="intervalStats && intervalStats.labels && intervalStats.counts" v-bind:[componentHash]="true" class="MCS__interval-stats-card">
+        <div v-bind:[componentHash]="true" class="Statistic__card__header">
+          <h3 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading3 -heading">Review Intervals (95th Percentile)</h3>
+        </div>
+        <div v-bind:[componentHash]="true" class="MCS__intervalchart">
+          <canvas ref="canvas"></canvas>
+        </div>
+      </div>
+      <div v-else v-bind:[componentHash]="true" class="MCS__interval-stats-card">
+        <div v-bind:[componentHash]="true" class="Statistic__card__header">
+          <h3 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading3 -heading">Review Intervals (95th Percentile)</h3>
+        </div>
+        <p v-bind:[componentHash]="true" class="UiTypo UiTypo__body2">Could not load review interval data.</p>
+      </div>
+    `
+  };
+
   /**
    * Prepares and displays the Vue component with stats data
    * 
@@ -1500,6 +1884,7 @@ function debounce(func, wait) {
     const isError = typeof data === "string" || data instanceof Error;
     let wordStats = null;
     let dueStats = null;
+    let intervalStats = null;
     let message = "";
 
     if (isError) {
@@ -1508,20 +1893,24 @@ function debounce(func, wait) {
       if (!(data && data.hasOwnProperty("wordStats"))) {
         dbState.lastWordStats = null;
         dbState.lastDueStats = null;
+        dbState.lastIntervalStats = null;
       }
-    } else if (data && (data.wordStats || data.dueStats)) {
+    } else if (data && (data.wordStats || data.dueStats || data.intervalStats)) {
       wordStats = data.wordStats;
       dueStats = data.dueStats;
+      intervalStats = data.intervalStats;
       if (data !== dbState.lastWordStats) {
         dbState.lastWordStats = wordStats;
         dbState.lastDueStats = dueStats;
+        dbState.lastIntervalStats = intervalStats;
       }
-      extensionLog("Displaying data:", { wordStats, dueStats });
+      extensionLog("Displaying data:", { wordStats, dueStats, intervalStats });
     } else {
       message = UI_TEXTS.LOADING_MESSAGE;
       extensionLog(message);
       dbState.lastWordStats = null;
       dbState.lastDueStats = null;
+      dbState.lastIntervalStats = null;
     }
 
     const vueContainer = document.createElement('div');
@@ -1533,12 +1922,14 @@ function debounce(func, wait) {
         DeckSelector,
         WordStatsCard,
         DueStatsCard,
-        MessageCard
+        MessageCard,
+        IntervalStatsCard
       },
       data() {
         return {
           wordStats,
           dueStats,
+          intervalStats,
           isError,
           message,
           availableDecks: dbState.availableDecks,
@@ -1548,8 +1939,10 @@ function debounce(func, wait) {
           currentTheme: getCurrentTheme(),
           wordChartRendered: false,
           dueChartRendered: false,
+          intervalChartRendered: false,
           wordCanvas: null,
-          dueCanvas: null
+          dueCanvas: null,
+          intervalCanvas: null
         };
       },
       methods: {
@@ -1571,6 +1964,10 @@ function debounce(func, wait) {
           this.dueCanvas = canvas;
           this.updateCharts();
         },
+        handleIntervalCanvasMounted(canvas) {
+          this.intervalCanvas = canvas;
+          this.updateCharts();
+        },
         handleWordCanvasUnmounted() {
           extensionLog("Word canvas unmounted, cleaning up");
           this.wordCanvas = null;
@@ -1581,14 +1978,18 @@ function debounce(func, wait) {
           this.dueCanvas = null;
           this.dueChartRendered = false;
         },
+        handleIntervalCanvasUnmounted() {
+          extensionLog("Interval canvas unmounted, cleaning up");
+          this.intervalCanvas = null;
+          this.intervalChartRendered = false;
+        },
         updateCharts() {
-          if (this.wordCanvas && this.dueCanvas) {
-            this.debouncedUpdateCharts();
-          }
+          this.debouncedUpdateCharts();
         },
         renderCharts() {
           this.renderWordChart();
           this.renderDueChart();
+          this.renderIntervalChart();
         },
         renderWordChart() {
           if (this.wordChartRendered || !this.wordCanvas || !this.wordStats) {
@@ -1616,22 +2017,39 @@ function debounce(func, wait) {
             extensionLog
           );
         },
+        renderIntervalChart() {
+          if (this.intervalChartRendered || !this.intervalCanvas || !this.intervalStats) {
+            return;
+          }
+          
+          this.intervalChartRendered = true;
+          
+          ChartManager.createIntervalChart(
+            this.intervalCanvas,
+            this.intervalStats,
+            extensionLog
+          );
+        },
         debouncedUpdateCharts: debounce(function() {
           extensionLog("Debounced chart update triggered");
           
           this.wordChartRendered = false;
           this.dueChartRendered = false;
+          this.intervalChartRendered = false;
           
           this.$nextTick(() => {
             ChartManager.updateCharts({
               wordCanvas: this.wordCanvas,
               dueCanvas: this.dueCanvas,
+              intervalCanvas: this.intervalCanvas,
               wordStats: this.wordStats,
               dueStats: this.dueStats,
+              intervalStats: this.intervalStats,
               logFn: extensionLog,
               onComplete: (results) => {
                 this.wordChartRendered = results.wordChartSuccess;
                 this.dueChartRendered = results.dueChartSuccess;
+                this.intervalChartRendered = results.intervalChartSuccess;
               }
             });
           });
@@ -1648,6 +2066,9 @@ function debounce(func, wait) {
           }
           if (newData.dueStats !== undefined) {
             this.dueStats = newData.dueStats;
+          }
+          if (newData.intervalStats !== undefined) {
+            this.intervalStats = newData.intervalStats;
           }
           if (newData.availableDecks !== undefined) {
             this.availableDecks = newData.availableDecks;
@@ -1683,10 +2104,19 @@ function debounce(func, wait) {
           },
           deep: true
         },
+        intervalStats: {
+          handler() {
+            extensionLog("intervalStats changed, scheduling chart update");
+            this.intervalChartRendered = false;
+            this.$nextTick(this.debouncedUpdateCharts);
+          },
+          deep: true
+        },
         currentTheme() {
           extensionLog("Theme changed, scheduling chart update");
           this.wordChartRendered = false;
           this.dueChartRendered = false;
+          this.intervalChartRendered = false;
           this.$nextTick(this.debouncedUpdateCharts);
         },
         selectedLanguage(newLang, oldLang) {
@@ -1697,6 +2127,7 @@ function debounce(func, wait) {
             this.dueCanvas = null;
             this.wordChartRendered = false;
             this.dueChartRendered = false;
+            this.intervalChartRendered = false;
           }
         }
       },
@@ -1709,10 +2140,10 @@ function debounce(func, wait) {
         });
       },
       beforeUnmount() {
-        // Ensure all charts are properly destroyed when the component is unmounted
         ChartManager.destroyCharts();
         this.wordCanvas = null;
         this.dueCanvas = null;
+        this.intervalCanvas = null;
       },
       template: `
         <div class="MCS__container" :class="{'UiCard -lesson Statistic__card': isError || message}">
@@ -1751,6 +2182,15 @@ function debounce(func, wait) {
                 @canvas-mounted="handleDueCanvasMounted"
                 @canvas-unmounted="handleDueCanvasUnmounted"
               />
+              
+              <!-- Interval Stats -->
+              <interval-stats-card 
+                :interval-stats="intervalStats" 
+                :component-hash="componentHash" 
+                chart-ref="intervalChart"
+                @canvas-mounted="handleIntervalCanvasMounted"
+                @canvas-unmounted="handleIntervalCanvasUnmounted"
+              />
             </div>
           </template>
         </div>
@@ -1758,7 +2198,6 @@ function debounce(func, wait) {
     });
 
     try {
-      // Step 5: Mount Vue app
       extensionLog("Mounting Vue app");
       const vueApp = app.mount('#migaku-custom-stats-vue-container');
       extensionLog("Vue app mounted successfully.");
@@ -1826,6 +2265,9 @@ function debounce(func, wait) {
         
         if (vueInstance) {
           vueInstance.updateData({
+            wordStats: null,
+            dueStats: null,
+            intervalStats: null,
             message: errorMessage,
             isError: true
           });
