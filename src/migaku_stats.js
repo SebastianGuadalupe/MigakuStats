@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Migaku Custom Stats
 // @namespace    http://tampermonkey.net/
-// @version      0.1.10
+// @version      0.1.11
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
 // @match        https://study.migaku.com
@@ -125,7 +125,7 @@ function debounce(func, wait) {
           JOIN CardWordRelation cwr ON w.dictForm = cwr.dictForm
           JOIN card c ON cwr.cardId = c.id
           JOIN deck d ON c.deckId = d.id
-          WHERE w.language = ? AND w.del = 0 AND d.id = ?
+          WHERE w.language = ? AND w.del = 0 AND d.id = ? AND c.del = 0
       ) as w`,
     DUE_QUERY: `
       SELECT
@@ -133,7 +133,7 @@ function debounce(func, wait) {
         COUNT(*) as count
       FROM card c
       JOIN card_type ct ON c.cardTypeId = ct.id
-      WHERE ct.lang = ? AND c.due BETWEEN ? AND ?`,
+      WHERE ct.lang = ? AND c.due BETWEEN ? AND ? AND c.del = 0`,
     INTERVAL_QUERY: `
       SELECT
         interval as interval_group,
@@ -151,8 +151,8 @@ function debounce(func, wait) {
       JOIN card c ON r.cardId = c.id
       JOIN card_type ct ON c.cardTypeId = ct.id
       JOIN reviewHistory rh ON r.day = rh.day
-      WHERE ct.lang = ? AND r.day >= ? AND r.del = 0 AND 
-        CASE 
+      WHERE ct.lang = ? AND r.day >= ? AND r.del = 0 AND
+        CASE
           WHEN rh.type = 1 THEN r.type IN (1, 2)
           WHEN rh.type = 2 THEN r.type IN (2)
           ELSE r.type IN (1, 2)
@@ -167,8 +167,7 @@ function debounce(func, wait) {
       FROM review r
       JOIN card c ON r.cardId = c.id
       JOIN card_type ct ON c.cardTypeId = ct.id
-      WHERE ct.lang = ? 
-      AND r.day >= ?`
+      WHERE ct.lang = ? AND r.day >= ? AND r.del = 0`
   };
 
   // UI/Display texts
@@ -1916,7 +1915,7 @@ function debounce(func, wait) {
         const total_reviews = studyResults[0].values[0][1] || 0;
         const avg_reviews_per_day = studyResults[0].values[0][2] || 0;
         
-        const daysStudiedPercent = Math.round((days_studied / (periodDays + 1)) * 100);
+        const daysStudiedPercent = Math.round((days_studied / periodDays) * 100);
         
         return {
           days_studied,
