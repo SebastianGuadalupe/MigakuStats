@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Migaku Custom Stats
 // @namespace    http://tampermonkey.net/
-// @version      0.1.13
+// @version      0.1.14
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
 // @match        https://study.migaku.com
@@ -167,7 +167,7 @@ function debounce(func, wait) {
       FROM review r
       JOIN card c ON r.cardId = c.id
       JOIN card_type ct ON c.cardTypeId = ct.id
-      WHERE ct.lang = ? AND r.day >= ? AND r.del = 0`
+      WHERE ct.lang = ? AND r.day > ? AND r.del = 0`
   };
 
   // UI/Display texts
