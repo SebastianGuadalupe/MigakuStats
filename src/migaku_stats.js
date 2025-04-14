@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Migaku Custom Stats
 // @namespace    http://tampermonkey.net/
-// @version      0.1.11
+// @version      0.1.12
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
 // @match        https://study.migaku.com
@@ -1891,7 +1891,7 @@ function debounce(func, wait) {
         }
       }
       
-      const startDayNumber = todayDayNumber - periodDays;
+      const startDayNumber = todayDayNumber - periodDays + 1;
       
       logFn(`Fetching study stats since day ${startDayNumber} (${periodDays} days ago)`);
       
@@ -2837,7 +2837,7 @@ function debounce(func, wait) {
         <div v-bind:[componentHash]="true" class="MCS__study-stats">
           <div v-bind:[componentHash]="true" class="MCS__stat-box">
             <div v-bind:[componentHash]="true" class="MCS__stat-value">{{ studyStats.days_studied_percent }}%</div>
-            <div v-bind:[componentHash]="true" class="MCS__stat-label">% of days studied</div>
+            <div v-bind:[componentHash]="true" class="MCS__stat-label">of days studied</div>
           </div>
           <div v-bind:[componentHash]="true" class="MCS__stat-box">
             <div v-bind:[componentHash]="true" class="MCS__stat-value">{{ studyStats.total_reviews.toLocaleString() }}</div>
