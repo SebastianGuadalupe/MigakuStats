@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Migaku Custom Stats
 // @namespace    http://tampermonkey.net/
-// @version      0.1.12
+// @version      0.1.13
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
 // @match        https://study.migaku.com
@@ -151,7 +151,7 @@ function debounce(func, wait) {
       JOIN card c ON r.cardId = c.id
       JOIN card_type ct ON c.cardTypeId = ct.id
       JOIN reviewHistory rh ON r.day = rh.day
-      WHERE ct.lang = ? AND r.day >= ? AND r.del = 0 AND
+      WHERE ct.lang = ? AND r.day > ? AND r.del = 0 AND
         CASE
           WHEN rh.type = 1 THEN r.type IN (1, 2)
           WHEN rh.type = 2 THEN r.type IN (2)
@@ -1549,16 +1549,21 @@ function debounce(func, wait) {
    */
   function fetchDueStats(dbInstance, language, deckId, logFn, dueStatsPeriod = "dueStats1") {
     try {
-      const periodMap = {
-        "dueStats1": 30,
-        "dueStats2": 60,
-        "dueStats3": 90,
-        "dueStats6": 180,
-        "dueStats12": 365,
-        "dueStatsAll": 3650
-      };
+      let forecastDays;
+      const period = dueStatsPeriod.replace("dueStats", "");
       
-      const forecastDays = periodMap[dueStatsPeriod] || CHART_CONFIG.FORECAST_DAYS;
+      if (period === "All") {
+        forecastDays = 3650;
+      } else {
+        const periodMonths = parseInt(period, 10) || 1;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const forecastEndDate = new Date(today);
+        
+        forecastEndDate.setMonth(today.getMonth() + periodMonths);
+        
+        forecastDays = Math.round((forecastEndDate - today) / (1000 * 60 * 60 * 24));
+      }
       
       const startDate = new Date(CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY);
       const today = new Date();
@@ -1765,7 +1770,16 @@ function debounce(func, wait) {
       const todayDayNumber = Math.floor((today - startDate) / (1000 * 60 * 60 * 24));
       logFn(`Today's day number: ${todayDayNumber}`);
       
-      const periodDays = period === "All" ? todayDayNumber : period * 30;
+      let periodDays;
+      if (period === "All") {
+        periodDays = todayDayNumber;
+      } else {
+        const periodMonths = parseInt(period, 10) || 1;
+        const periodStartDate = new Date(today);
+        periodStartDate.setMonth(today.getMonth() - periodMonths);
+        periodDays = Math.round((today - periodStartDate) / (1000 * 60 * 60 * 24));
+      }
+      
       const periodDaysAgoDayNumber = todayDayNumber - periodDays;
       
       logFn(`Fetching review history since day ${periodDaysAgoDayNumber} (${periodDays} days ago)`);
@@ -1775,8 +1789,8 @@ function debounce(func, wait) {
       
       if (deckId !== SETTINGS.DEFAULT_DECK_ID) {
         reviewQuery = reviewQuery.replace(
-          "WHERE ct.lang = ? AND r.day >= ? AND r.del = 0", 
-          "WHERE ct.lang = ? AND r.day >= ? AND r.del = 0 AND c.deckId = ?"
+          "WHERE ct.lang = ? AND r.day > ? AND r.del = 0", 
+          "WHERE ct.lang = ? AND r.day > ? AND r.del = 0 AND c.deckId = ?"
         );
         reviewQueryParams.push(deckId);
       }
@@ -1859,8 +1873,7 @@ function debounce(func, wait) {
       today.setHours(0, 0, 0, 0);
       const todayDayNumber = Math.floor((today - startDate) / (1000 * 60 * 60 * 24));
       
-      let periodDays = period * 30;
-      
+      let periodDays;
       if (period === "All") {
         let earliestReviewQuery = `SELECT MIN(r.day) as minDay 
                                    FROM review r 
@@ -1889,9 +1902,14 @@ function debounce(func, wait) {
           periodDays = todayDayNumber;
           logFn(`No earliest review day found, using full period: ${periodDays} days`);
         }
+      } else {
+        const periodMonths = parseInt(period, 10) || 1;
+        const periodStartDate = new Date(today);
+        periodStartDate.setMonth(today.getMonth() - periodMonths);
+        periodDays = Math.round((today - periodStartDate) / (1000 * 60 * 60 * 24));
       }
       
-      const startDayNumber = todayDayNumber - periodDays + 1;
+      const startDayNumber = todayDayNumber - periodDays;
       
       logFn(`Fetching study stats since day ${startDayNumber} (${periodDays} days ago)`);
       
@@ -1914,6 +1932,8 @@ function debounce(func, wait) {
         const days_studied = studyResults[0].values[0][0] || 0;
         const total_reviews = studyResults[0].values[0][1] || 0;
         const avg_reviews_per_day = studyResults[0].values[0][2] || 0;
+
+        logFn(`Days studied: ${days_studied}, Total reviews: ${total_reviews}, Avg reviews per day: ${avg_reviews_per_day}, Period days: ${periodDays}`);
         
         const daysStudiedPercent = Math.round((days_studied / periodDays) * 100);
         
