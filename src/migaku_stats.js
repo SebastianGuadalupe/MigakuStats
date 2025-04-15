@@ -1,9 +1,10 @@
 // ==UserScript==
 // @name         Migaku Custom Stats
 // @namespace    http://tampermonkey.net/
-// @version      0.1.15
+// @version      0.1.16
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
+// @license      GPL-3.0
 // @match        https://study.migaku.com
 // @match        https://study.migaku.com/statistic
 // @match        https://study.migaku.com/collection
@@ -158,12 +159,12 @@ function debounce(func, wait) {
     STUDY_STATS_QUERY: `
       SELECT 
         COUNT(DISTINCT r.day) as days_studied,
-        COUNT(DISTINCT r.cardId) as total_reviews,
-        ROUND(COUNT(DISTINCT r.cardId) * 1.0 / COUNT(DISTINCT r.day), 1) as avg_reviews_per_day
+        COUNT(*) as total_reviews,
+        ROUND(COUNT(*) * 1.0 / COUNT(DISTINCT r.day), 1) as avg_reviews_per_day
       FROM review r
       JOIN card c ON r.cardId = c.id
       JOIN card_type ct ON c.cardTypeId = ct.id
-      WHERE ct.lang = ? AND r.day > ? AND r.del = 0`,
+      WHERE ct.lang = ? AND r.day >= ? AND r.del = 0`,
     CURRENT_DATE_QUERY: `
       SELECT entry 
       FROM keyValue
@@ -1951,7 +1952,7 @@ function debounce(func, wait) {
         periodDays = Math.round((today - periodStartDate) / (1000 * 60 * 60 * 24));
       }
       
-      const startDayNumber = currentDayNumber - periodDays;
+      const startDayNumber = currentDayNumber - periodDays + 1;
       
       logFn(`Fetching study stats since day ${startDayNumber} (${periodDays} days ago)`);
       
