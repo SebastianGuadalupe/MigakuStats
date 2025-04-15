@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Migaku Custom Stats
 // @namespace    http://tampermonkey.net/
-// @version      0.1.14
+// @version      0.1.15
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
 // @match        https://study.migaku.com
@@ -146,28 +146,29 @@ function debounce(func, wait) {
     REVIEW_HISTORY_QUERY: `
       SELECT 
         r.day,
-        COUNT(r.id) as review_count
+        r.type,
+        COUNT(DISTINCT r.cardId) as review_count
       FROM review r
       JOIN card c ON r.cardId = c.id
       JOIN card_type ct ON c.cardTypeId = ct.id
       JOIN reviewHistory rh ON r.day = rh.day
-      WHERE ct.lang = ? AND r.day > ? AND r.del = 0 AND
-        CASE
-          WHEN rh.type = 1 THEN r.type IN (1, 2)
-          WHEN rh.type = 2 THEN r.type IN (2)
-          ELSE r.type IN (1, 2)
-        END
-      GROUP BY r.day
-      ORDER BY r.day DESC`,
+      WHERE ct.lang = ? AND r.day > ? AND r.del = 0
+      GROUP BY r.day, r.type
+      ORDER BY r.day DESC, r.type`,
     STUDY_STATS_QUERY: `
       SELECT 
         COUNT(DISTINCT r.day) as days_studied,
-        COUNT(*) as total_reviews,
-        ROUND(COUNT(*) * 1.0 / COUNT(DISTINCT r.day), 1) as avg_reviews_per_day
+        COUNT(DISTINCT r.cardId) as total_reviews,
+        ROUND(COUNT(DISTINCT r.cardId) * 1.0 / COUNT(DISTINCT r.day), 1) as avg_reviews_per_day
       FROM review r
       JOIN card c ON r.cardId = c.id
       JOIN card_type ct ON c.cardTypeId = ct.id
-      WHERE ct.lang = ? AND r.day > ? AND r.del = 0`
+      WHERE ct.lang = ? AND r.day > ? AND r.del = 0`,
+    CURRENT_DATE_QUERY: `
+      SELECT entry 
+      FROM keyValue
+      WHERE key = 'study.activeDay.currentDate';
+    `
   };
 
   // UI/Display texts
@@ -322,6 +323,7 @@ function debounce(func, wait) {
       backgroundElevation1: "#202047",
       backgroundElevation2: "#2b2b60",
       accent1: "rgba(178, 114, 255, 1)",
+      accent2: "#fe4670",
       accent3: "#fba335",
       accent1Transparent: "rgba(178, 114, 255, 0.12)",
       textColor: "rgba(255, 255, 255, 1)",
@@ -336,6 +338,7 @@ function debounce(func, wait) {
       backgroundElevation1: "#fff",
       backgroundElevation2: "#fff",
       accent1: "#672fc3",
+      accent2: "#fe4670",
       accent3: "#ff9345",
       accent1Transparent: "rgba(103, 47, 195, 0.12)",
       textColor: "rgba(0, 0, 90, 1)",
@@ -534,8 +537,24 @@ function debounce(func, wait) {
           labels: reviewStats.labels,
           datasets: [
             {
-              label: 'Reviews',
-              data: reviewStats.counts,
+              label: reviewStats.typeLabels[0],
+              data: reviewStats.counts[0],
+              backgroundColor: themeColors.accent1,
+              borderWidth: 0,
+              borderRadius: 4,
+              order: 3
+            },
+            {
+              label: reviewStats.typeLabels[1],
+              data: reviewStats.counts[1],
+              backgroundColor: themeColors.accent2,
+              borderWidth: 0,
+              borderRadius: 4,
+              order: 2
+            },
+            {
+              label: reviewStats.typeLabels[2],
+              data: reviewStats.counts[2],
               backgroundColor: themeColors.accent3,
               borderWidth: 0,
               borderRadius: 4,
@@ -553,6 +572,7 @@ function debounce(func, wait) {
           scales: {
             y: {
               beginAtZero: true,
+              stacked: true,
               title: {
                 display: true,
                 text: 'Number of Reviews',
@@ -567,6 +587,7 @@ function debounce(func, wait) {
               },
             },
             x: {
+              stacked: true,
               title: {
                 display: true,
                 text: 'Date',
@@ -584,7 +605,13 @@ function debounce(func, wait) {
           },
           plugins: {
             legend: {
-              display: false,
+              display: true,
+              position: 'top',
+              labels: {
+                color: themeColors.textColor,
+                usePointStyle: true,
+                pointStyle: 'rect'
+              }
             },
             tooltip: {
               mode: 'index',
@@ -594,7 +621,7 @@ function debounce(func, wait) {
                 },
                 label: function(context) {
                   const value = context.parsed.y;
-                  return `Reviews: ${value}`;
+                  return `${context.dataset.label}: ${value}`;
                 }
               },
               backgroundColor: themeColors.backgroundElevation2,
@@ -616,8 +643,12 @@ function debounce(func, wait) {
           logFn("Updating existing review history chart with new data");
           
           this.reviewChartInstance.data.labels = reviewStats.labels;
-          this.reviewChartInstance.data.datasets[0].data = reviewStats.counts;
-          this.reviewChartInstance.data.datasets[0].backgroundColor = themeColors.accent3;
+          this.reviewChartInstance.data.datasets[0].data = reviewStats.counts[0];
+          this.reviewChartInstance.data.datasets[1].data = reviewStats.counts[1];
+          this.reviewChartInstance.data.datasets[2].data = reviewStats.counts[2];
+          this.reviewChartInstance.data.datasets[0].backgroundColor = themeColors.accent1;
+          this.reviewChartInstance.data.datasets[1].backgroundColor = themeColors.accent2;
+          this.reviewChartInstance.data.datasets[2].backgroundColor = themeColors.accent3;
           
           this.reviewChartInstance.options.scales.y.ticks.color = themeColors.textColor;
           this.reviewChartInstance.options.scales.y.title.color = themeColors.textColor;
@@ -628,6 +659,7 @@ function debounce(func, wait) {
           this.reviewChartInstance.options.plugins.tooltip.backgroundColor = themeColors.backgroundElevation2;
           this.reviewChartInstance.options.plugins.tooltip.bodyColor = themeColors.textColor;
           this.reviewChartInstance.options.plugins.tooltip.titleColor = themeColors.textColor;
+          this.reviewChartInstance.options.plugins.legend.labels.color = themeColors.textColor;
           
           this.reviewChartInstance.update();
           return this.reviewChartInstance;
@@ -1544,10 +1576,12 @@ function debounce(func, wait) {
    * @param {string} language - Selected language
    * @param {string} deckId - Selected deck ID
    * @param {Function} logFn - Logging function
+   * @param {Date} currentDate - The current date fetched from the database
+   * @param {number} currentDayNumber - The current day number relative to the start date
    * @param {string} dueStatsPeriod - Period ID (default: "dueStats1")
    * @returns {Object|null} - Due cards statistics or null if failed
    */
-  function fetchDueStats(dbInstance, language, deckId, logFn, dueStatsPeriod = "dueStats1") {
+  function fetchDueStats(dbInstance, language, deckId, logFn, currentDate, currentDayNumber, dueStatsPeriod = "dueStats1") {
     try {
       let forecastDays;
       const period = dueStatsPeriod.replace("dueStats", "");
@@ -1565,17 +1599,12 @@ function debounce(func, wait) {
         forecastDays = Math.round((forecastEndDate - today) / (1000 * 60 * 60 * 24));
       }
       
-      const startDate = new Date(CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const todayDayNumber = Math.floor((today - startDate) / (1000 * 60 * 60 * 24));
-      
       let endDayNumber;
       if (dueStatsPeriod === "dueStatsAll") {
         let maxDueQuery = `SELECT MAX(due) as maxDue FROM card c
                           JOIN card_type ct ON c.cardTypeId = ct.id
                           WHERE ct.lang = ? AND c.due >= ? AND c.del = 0`;
-        let maxDueParams = [language, todayDayNumber];
+        let maxDueParams = [language, currentDayNumber];
         
         if (deckId !== SETTINGS.DEFAULT_DECK_ID) {
           maxDueQuery += " AND c.deckId = ?";
@@ -1586,22 +1615,22 @@ function debounce(func, wait) {
         
         if (maxDueResults.length > 0 && maxDueResults[0].values.length > 0 && maxDueResults[0].values[0][0] !== null) {
           const maxDueDay = maxDueResults[0].values[0][0];
-          endDayNumber = Math.min(todayDayNumber + 365, maxDueDay);
+          endDayNumber = Math.min(currentDayNumber + 365, maxDueDay);
           logFn(`Found max due day: ${maxDueDay}, using end day: ${endDayNumber}`);
         } else {
-          endDayNumber = todayDayNumber + forecastDays - 1;
+          endDayNumber = currentDayNumber + forecastDays - 1;
           logFn(`No max due day found, using default: ${endDayNumber}`);
         }
       } else {
-        endDayNumber = todayDayNumber + (forecastDays - 1);
+        endDayNumber = currentDayNumber + (forecastDays - 1);
       }
       
-      logFn(`Calculating due cards between day ${todayDayNumber} and ${endDayNumber}`);
+      logFn(`Calculating due cards between day ${currentDayNumber} and ${endDayNumber}`);
       
-      const actualForecastDays = endDayNumber - todayDayNumber + 1;
+      const actualForecastDays = endDayNumber - currentDayNumber + 1;
       
       let dueQuery = SQL_QUERIES.DUE_QUERY;
-      let dueQueryParams = [language, todayDayNumber, endDayNumber];
+      let dueQueryParams = [language, currentDayNumber, endDayNumber];
       
       if (deckId !== SETTINGS.DEFAULT_DECK_ID) {
         dueQuery += " AND c.deckId = ?";
@@ -1614,7 +1643,7 @@ function debounce(func, wait) {
       
       const dateLabels = [];
       const dateCounts = [];
-      const tempDate = new Date(today);
+      const tempDate = new Date(currentDate);
       
       for (let i = 0; i < actualForecastDays; i++) {
         let label = tempDate.toLocaleDateString(undefined, {
@@ -1623,7 +1652,7 @@ function debounce(func, wait) {
           year: "numeric"
         });
         if (SETTINGS.ENVIRONMENT === "dev") {
-          label += ` (${todayDayNumber + i})`;
+          label += ` (${currentDayNumber + i})`;
         }
         dateLabels.push(label);
         dateCounts.push(0);
@@ -1643,7 +1672,7 @@ function debounce(func, wait) {
         });
         
         for (let i = 0; i < actualForecastDays; i++) {
-          const dayNum = todayDayNumber + i;
+          const dayNum = currentDayNumber + i;
           if (dueCountsByDay[dayNum]) {
             dateCounts[i] = dueCountsByDay[dayNum];
           }
@@ -1681,10 +1710,10 @@ function debounce(func, wait) {
    * @param {string} language - Selected language
    * @param {string} deckId - Selected deck ID
    * @param {Function} logFn - Logging function
-   * @param {string} percentileId - Percentile ID (default: "intervalPercentile95")
+   * @param {string} percentileId - Percentile ID (default: "intervalPercentile75")
    * @returns {Object|null} - Interval statistics or null if failed
    */
-  function fetchIntervalStats(dbInstance, language, deckId, logFn, percentileId = "intervalPercentile95") {
+  function fetchIntervalStats(dbInstance, language, deckId, logFn, percentileId = "intervalPercentile75") {
     try {
       const percentile = percentileId.replace("intervalPercentile", "");
       let intervalQuery = SQL_QUERIES.INTERVAL_QUERY;
@@ -1758,29 +1787,27 @@ function debounce(func, wait) {
    * @param {string} language - Selected language
    * @param {string} deckId - Selected deck ID
    * @param {Function} logFn - Logging function
+   * @param {Date} currentDate - The current date fetched from the database
+   * @param {number} currentDayNumber - The current day number relative to the start date
    * @param {string} periodId - Period ID (default: "reviewHistory1")
    * @returns {Object|null} - Review history statistics or null if failed
    */
-  function fetchReviewHistory(dbInstance, language, deckId, logFn, periodId = "reviewHistory1") {
+  function fetchReviewHistory(dbInstance, language, deckId, logFn, currentDate, currentDayNumber, periodId = "reviewHistory1") {
     try {
       const period = periodId.replace("reviewHistory", "");
       const startDate = new Date(CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const todayDayNumber = Math.floor((today - startDate) / (1000 * 60 * 60 * 24));
-      logFn(`Today's day number: ${todayDayNumber}`);
       
       let periodDays;
       if (period === "All") {
-        periodDays = todayDayNumber;
+        periodDays = currentDayNumber;
       } else {
         const periodMonths = parseInt(period, 10) || 1;
-        const periodStartDate = new Date(today);
-        periodStartDate.setMonth(today.getMonth() - periodMonths);
-        periodDays = Math.round((today - periodStartDate) / (1000 * 60 * 60 * 24));
+        const periodStartDate = new Date(currentDate);
+        periodStartDate.setMonth(currentDate.getMonth() - periodMonths);
+        periodDays = Math.round((currentDate - periodStartDate) / (1000 * 60 * 60 * 24));
       }
       
-      const periodDaysAgoDayNumber = todayDayNumber - periodDays;
+      const periodDaysAgoDayNumber = currentDayNumber - periodDays;
       
       logFn(`Fetching review history since day ${periodDaysAgoDayNumber} (${periodDays} days ago)`);
       
@@ -1798,24 +1825,26 @@ function debounce(func, wait) {
       const reviewResults = dbInstance.exec(reviewQuery, reviewQueryParams);
       
       const dateLabels = [];
-      const dateCounts = [];
+      const type0Counts = [];
+      const type1Counts = [];
+      const type2Counts = [];
       const dayMap = new Map();
       
       let actualPeriodDays = periodDays;
       if (period === "All" && reviewResults.length > 0 && reviewResults[0].values.length > 0) {
-        let earliestDayWithReviews = todayDayNumber;
+        let earliestDayWithReviews = currentDayNumber;
         reviewResults[0].values.forEach(row => {
           const dayNumber = row[0];
           earliestDayWithReviews = Math.min(earliestDayWithReviews, dayNumber);
         });
         
-        const daysWithData = todayDayNumber - earliestDayWithReviews + 1;
+        const daysWithData = currentDayNumber - earliestDayWithReviews + 1;
         actualPeriodDays = Math.min(periodDays, daysWithData + 5);
         logFn(`Found earliest day with reviews: ${earliestDayWithReviews}, using period: ${actualPeriodDays} days`);
       }
       
       for (let i = 0; i < actualPeriodDays; i++) {
-        const dayNumber = todayDayNumber - i;
+        const dayNumber = currentDayNumber - i;
         const date = new Date(startDate);
         date.setDate(date.getDate() + dayNumber);
         
@@ -1825,11 +1854,13 @@ function debounce(func, wait) {
           year: 'numeric'
         });
         if (SETTINGS.ENVIRONMENT === "dev") {
-          displayDate += ` (${todayDayNumber - i})`;
+          displayDate += ` (${currentDayNumber - i})`;
         }        
 
         dateLabels.unshift(displayDate);
-        dateCounts.unshift(0);
+        type0Counts.unshift(0);
+        type1Counts.unshift(0);
+        type2Counts.unshift(0);
         dayMap.set(dayNumber, { index: actualPeriodDays - 1 - i, displayDate });
       }
       
@@ -1838,18 +1869,29 @@ function debounce(func, wait) {
         
         reviewResults[0].values.forEach(row => {
           const dayNumber = row[0];
-          const count = row[1];
+          const reviewType = row[1];
+          const count = row[2];
           
           if (dayMap.has(dayNumber)) {
             const { index } = dayMap.get(dayNumber);
-            dateCounts[index] = count;
+            if (reviewType === 0) {
+              type0Counts[index] = count;
+            } else if (reviewType === 1) {
+              type1Counts[index] = count;
+            } else if (reviewType === 2) {
+              type2Counts[index] = count;
+            }
           }
         });
       } else {
         logFn("Review history query returned no results");
       }
       
-      return { labels: dateLabels, counts: dateCounts };
+      return { 
+        labels: dateLabels, 
+        counts: [type0Counts, type1Counts, type2Counts],
+        typeLabels: ['Lessons', 'Failed reviews', 'Successful reviews']
+      };
     } catch (error) {
       logFn("Error fetching review history:", error);
       return null;
@@ -1862,16 +1904,14 @@ function debounce(func, wait) {
    * @param {string} language - Selected language
    * @param {string} deckId - Selected deck ID
    * @param {Function} logFn - Logging function
+   * @param {number} currentDayNumber - The current day number relative to the start date
    * @param {string} periodId - Period ID (default: "studyStats1")
    * @returns {Object|null} - Study statistics or null if failed
    */
-  function fetchStudyStats(dbInstance, language, deckId, logFn, periodId = "studyStats1") {
+  function fetchStudyStats(dbInstance, language, deckId, logFn, currentDayNumber, periodId = "studyStats1") {
     try {
       const period = periodId.replace("studyStats", "");
       const startDate = new Date(CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const todayDayNumber = Math.floor((today - startDate) / (1000 * 60 * 60 * 24));
       
       let periodDays;
       if (period === "All") {
@@ -1895,21 +1935,23 @@ function debounce(func, wait) {
             earliestReviewResults[0].values[0][0] !== null) {
           const earliestDayWithReviews = earliestReviewResults[0].values[0][0];
           
-          periodDays = todayDayNumber - earliestDayWithReviews + 1;
+          periodDays = currentDayNumber - earliestDayWithReviews + 1;
           logFn(`Found earliest review day: ${earliestDayWithReviews}, setting period to ${periodDays} days`);
         } else {
           
-          periodDays = todayDayNumber;
+          periodDays = currentDayNumber;
           logFn(`No earliest review day found, using full period: ${periodDays} days`);
         }
       } else {
         const periodMonths = parseInt(period, 10) || 1;
+        const today = new Date(startDate);
+        today.setDate(today.getDate() + currentDayNumber);
         const periodStartDate = new Date(today);
         periodStartDate.setMonth(today.getMonth() - periodMonths);
         periodDays = Math.round((today - periodStartDate) / (1000 * 60 * 60 * 24));
       }
       
-      const startDayNumber = todayDayNumber - periodDays;
+      const startDayNumber = currentDayNumber - periodDays;
       
       logFn(`Fetching study stats since day ${startDayNumber} (${periodDays} days ago)`);
       
@@ -2138,6 +2180,26 @@ function debounce(func, wait) {
             extensionLog("Database loaded successfully.");
             extensionLog("Executing SQL queries...");
             
+            let currentDateString = null;
+            let currentDate = new Date();
+            currentDate.setHours(0, 0, 0, 0);
+            let currentDayNumber = 0;
+            const startDate = new Date(CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY);
+            
+            try {
+              const dateResult = dbInstance.exec(SQL_QUERIES.CURRENT_DATE_QUERY);
+              if (dateResult.length > 0 && dateResult[0].values.length > 0 && dateResult[0].values[0][0]) {
+                currentDateString = dateResult[0].values[0][0];
+                currentDate = new Date(currentDateString + 'T00:00:00');
+                extensionLog("Fetched current date from DB:", currentDateString);
+              } else {
+                 extensionLog("Could not fetch current date from DB, falling back to system time.");
+              }
+            } catch (dateError) {
+              extensionLog("Error fetching current date from DB, falling back to system time:", dateError);
+            }
+            currentDayNumber = Math.floor((currentDate - startDate) / (1000 * 60 * 60 * 24));
+            
             const decks = fetchDecks(dbInstance, appState.selectedLanguage, extensionLog);
             dbState.availableDecks = decks;
             
@@ -2153,6 +2215,8 @@ function debounce(func, wait) {
               appState.selectedLanguage, 
               appState.selectedDeckId, 
               extensionLog,
+              currentDate,
+              currentDayNumber,
               vueInstance ? vueInstance.selectedDuePeriod : "dueStats1"
             );
             
@@ -2161,7 +2225,7 @@ function debounce(func, wait) {
               appState.selectedLanguage, 
               appState.selectedDeckId, 
               extensionLog,
-              vueInstance ? vueInstance.selectedPercentile : "intervalPercentile95"
+              vueInstance ? vueInstance.selectedPercentile : "intervalPercentile75"
             );
             
             const reviewHistoryData = fetchReviewHistory(
@@ -2169,6 +2233,8 @@ function debounce(func, wait) {
               appState.selectedLanguage,
               appState.selectedDeckId,
               extensionLog,
+              currentDate,
+              currentDayNumber,
               vueInstance ? vueInstance.selectedPeriodReviewHistory : "reviewHistory1"
             );
             
@@ -2177,6 +2243,7 @@ function debounce(func, wait) {
               appState.selectedLanguage,
               appState.selectedDeckId,
               extensionLog,
+              currentDayNumber,
               vueInstance ? vueInstance.selectedPeriodStudyStats : "studyStats1"
             );
 
@@ -2690,7 +2757,7 @@ function debounce(func, wait) {
     },
     data() {
       return {
-        selectedPercentile: "intervalPercentile95",
+        selectedPercentile: "intervalPercentile75",
         percentileOptions: [
           { id: "intervalPercentile50", name: '50th' },
           { id: "intervalPercentile75", name: '75th' },
@@ -3090,7 +3157,7 @@ function debounce(func, wait) {
           availableDecks: dbState.availableDecks,
           selectedDeckId: appState.selectedDeckId,
           selectedLanguage: appState.selectedLanguage,
-          selectedPercentile: "intervalPercentile95",
+          selectedPercentile: "intervalPercentile75",
           selectedPeriodStudyStats: "studyStats1",
           selectedPeriodReviewHistory: "reviewHistory1",
           selectedDuePeriod: "dueStats1",
