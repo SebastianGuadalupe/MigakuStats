@@ -153,7 +153,7 @@ function debounce(func, wait) {
       JOIN card c ON r.cardId = c.id
       JOIN card_type ct ON c.cardTypeId = ct.id
       JOIN reviewHistory rh ON r.day = rh.day
-      WHERE ct.lang = ? AND r.day > ? AND r.del = 0
+      WHERE ct.lang = ? AND r.day >= ? AND r.del = 0
       GROUP BY r.day, r.type
       ORDER BY r.day DESC, r.type`,
     STUDY_STATS_QUERY: `
@@ -1805,7 +1805,7 @@ function debounce(func, wait) {
         const periodMonths = parseInt(period, 10) || 1;
         const periodStartDate = new Date(currentDate);
         periodStartDate.setMonth(currentDate.getMonth() - periodMonths);
-        periodDays = Math.round((currentDate - periodStartDate) / (1000 * 60 * 60 * 24));
+        periodDays = Math.round((currentDate - periodStartDate) / (1000 * 60 * 60 * 24)) + 1;
       }
       
       const periodDaysAgoDayNumber = currentDayNumber - periodDays;
@@ -1817,8 +1817,8 @@ function debounce(func, wait) {
       
       if (deckId !== SETTINGS.DEFAULT_DECK_ID) {
         reviewQuery = reviewQuery.replace(
-          "WHERE ct.lang = ? AND r.day > ? AND r.del = 0", 
-          "WHERE ct.lang = ? AND r.day > ? AND r.del = 0 AND c.deckId = ?"
+          "WHERE ct.lang = ? AND r.day >= ? AND r.del = 0", 
+          "WHERE ct.lang = ? AND r.day >= ? AND r.del = 0 AND c.deckId = ?"
         );
         reviewQueryParams.push(deckId);
       }
@@ -1949,7 +1949,7 @@ function debounce(func, wait) {
         today.setDate(today.getDate() + currentDayNumber);
         const periodStartDate = new Date(today);
         periodStartDate.setMonth(today.getMonth() - periodMonths);
-        periodDays = Math.round((today - periodStartDate) / (1000 * 60 * 60 * 24));
+        periodDays = Math.round((today - periodStartDate) / (1000 * 60 * 60 * 24)) + 1;
       }
       
       const startDayNumber = currentDayNumber - periodDays + 1;
