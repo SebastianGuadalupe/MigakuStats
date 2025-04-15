@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Migaku Custom Stats
 // @namespace    http://tampermonkey.net/
-// @version      0.1.16
+// @version      0.1.17
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
 // @license      GPL-3.0
@@ -164,7 +164,7 @@ function debounce(func, wait) {
       FROM review r
       JOIN card c ON r.cardId = c.id
       JOIN card_type ct ON c.cardTypeId = ct.id
-      WHERE ct.lang = ? AND r.day >= ? AND r.del = 0`,
+      WHERE ct.lang = ? AND r.day BETWEEN ? AND ? AND r.del = 0`,
     CURRENT_DATE_QUERY: `
       SELECT entry 
       FROM keyValue
@@ -1957,12 +1957,12 @@ function debounce(func, wait) {
       logFn(`Fetching study stats since day ${startDayNumber} (${periodDays} days ago)`);
       
       let studyQuery = SQL_QUERIES.STUDY_STATS_QUERY;
-      let studyQueryParams = [language, startDayNumber];
+      let studyQueryParams = [language, startDayNumber, currentDayNumber];
       
       if (deckId !== SETTINGS.DEFAULT_DECK_ID) {
         studyQuery = studyQuery.replace(
-          "WHERE ct.lang = ? AND r.day >= ?", 
-          "WHERE ct.lang = ? AND r.day >= ? AND c.deckId = ?"
+          "AND r.del = 0", 
+          "AND c.deckId = ? AND r.del = 0" 
         );
         studyQueryParams.push(deckId);
       }
