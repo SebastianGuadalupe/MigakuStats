@@ -5,14 +5,14 @@
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
 // @license      GPL-3.0
-// @match        https://study.migaku.com
+// @match        https://study.migaku.com/
 // @match        https://study.migaku.com/statistic
 // @match        https://study.migaku.com/collection
 // @run-at       document-idle
 // @require      https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js
 // @require      https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js
 // @require      https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js
-// @require      https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.min.js
+// @require      https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.min.prod.js
 // @grant        GM_addStyle
 // ==/UserScript==
 
@@ -2526,7 +2526,7 @@ function debounce(func, wait) {
           item-key="id"
           item-label="name"
           placeholder="Select Deck"
-          width="250"
+          :width="250"
           :component-hash="componentHash"
         >
           <template #trigger="{ selectedLabel }">
@@ -2676,7 +2676,7 @@ function debounce(func, wait) {
               item-key="id"
               item-label="name"
               placeholder="Select Period"
-              width="180"
+              :width="180"
               :component-hash="componentHash"
             >
               <template #trigger="{ selectedLabel }">
@@ -2713,7 +2713,7 @@ function debounce(func, wait) {
               item-key="id"
               item-label="name"
               placeholder="Select Period"
-              width="180"
+              :width="180"
               :component-hash="componentHash"
             >
               <template #trigger="{ selectedLabel }">
@@ -2802,7 +2802,7 @@ function debounce(func, wait) {
               item-key="id"
               item-label="name"
               placeholder="Select Percentile"
-              width="180"
+              :width="180"
               :component-hash="componentHash"
             >
               <template #trigger="{ selectedLabel }">
@@ -2828,7 +2828,7 @@ function debounce(func, wait) {
               item-key="id"
               item-label="name"
               placeholder="Select Percentile"
-              width="120"
+              :width="120"
               :component-hash="componentHash"
             >
               <template #trigger="{ selectedLabel }">
@@ -2900,7 +2900,7 @@ function debounce(func, wait) {
               item-key="id"
               item-label="name"
               placeholder="Select Period"
-              width="180"
+              :width="180"
               :component-hash="componentHash"
             >
               <template #trigger="{ selectedLabel }">
@@ -3015,7 +3015,7 @@ function debounce(func, wait) {
               item-key="id"
               item-label="name"
               placeholder="Select Period"
-              width="180"
+              :width="180"
               :component-hash="componentHash"
             >
               <template #trigger="{ selectedLabel }">
@@ -3052,7 +3052,7 @@ function debounce(func, wait) {
               item-key="id"
               item-label="name"
               placeholder="Select Period"
-              width="180"
+              :width="180"
               :component-hash="componentHash"
             >
               <template #trigger="{ selectedLabel }">
