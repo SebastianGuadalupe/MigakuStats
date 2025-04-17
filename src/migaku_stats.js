@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Migaku Custom Stats
 // @namespace    http://tampermonkey.net/
-// @version      0.1.17
+// @version      0.1.18
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
 // @license      GPL-3.0
@@ -317,6 +317,39 @@ function debounce(func, wait) {
       align-items: center;
       justify-content: space-between;
     }
+
+    .MCS__radio-group {
+      display: flex;
+      align-items: center;
+      padding: 8px 0;
+      justify-content: space-around;
+    }
+
+    .MCS__radio-button {
+      width: 24px;
+      height: 24px;
+      background-position: center;
+      background-repeat: no-repeat;
+      background-size: 16px 16px;
+      border-radius: 50%;
+      position: relative;
+    }
+
+    .MCS__radio-button.-toggled {
+      background: none;
+    }
+
+    .MCS__radio-button.-toggled::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background-image: linear-gradient(180deg,var(--primary-gradient-1),var(--primary-gradient-2));
+    }
     `;
 
   const themeConfigs = {
@@ -434,9 +467,10 @@ function debounce(func, wait) {
             legend: {
               position: 'right',
               labels: {
-                boxWidth: 20,
                 color: themeColors.textColor,
-              },
+                usePointStyle: true,
+                pointStyle: 'circle'
+              }
             },
             tooltip: {
               callbacks: {
@@ -611,7 +645,7 @@ function debounce(func, wait) {
               labels: {
                 color: themeColors.textColor,
                 usePointStyle: true,
-                pointStyle: 'rect'
+                pointStyle: 'circle'
               }
             },
             tooltip: {
@@ -807,6 +841,8 @@ function debounce(func, wait) {
               position: 'top',
               labels: {
                 color: themeColors.textColor,
+                usePointStyle: true,
+                pointStyle: 'circle'
               }
             },
             tooltip: {
@@ -1079,6 +1115,8 @@ function debounce(func, wait) {
               position: 'top',
               labels: {
                 color: themeColors.textColor,
+                usePointStyle: true,
+                pointStyle: 'circle'
               }
             },
             tooltip: {
@@ -1127,6 +1165,29 @@ function debounce(func, wait) {
           this.intervalChartInstance.data.labels = intervalStats.labels;
           this.intervalChartInstance.data.datasets[0].data = intervalStats.counts;
           this.intervalChartInstance.data.datasets[1].data = cumulativeCounts;
+          
+          this.intervalChartInstance.options.plugins.tooltip.callbacks = {
+            title: function(tooltipItems) {
+              return tooltipItems[0].label;
+            },
+            label: function(context) {
+              const datasetLabel = context.dataset.label || '';
+              const value = context.parsed.y;
+              const total = cumulativeCounts[cumulativeCounts.length - 1];
+              
+              if (datasetLabel === 'Cards per Interval' && value > 0) {
+                const percentage = ((value / total) * 100).toFixed(1);
+                return `${datasetLabel}: ${value} (${percentage}%)`;
+              }
+              
+              if (datasetLabel === 'Cumulative Cards') {
+                const percentage = ((value / total) * 100).toFixed(1);
+                return `${datasetLabel}: ${value} (${percentage}%)`;
+              }
+              
+              return `${datasetLabel}: ${value}`;
+            }
+          };
           
           this.intervalChartInstance.data.datasets[0].backgroundColor = themeColors.accent1;
           this.intervalChartInstance.data.datasets[1].borderColor = themeColors.accent1Transparent;
@@ -1791,9 +1852,10 @@ function debounce(func, wait) {
    * @param {Date} currentDate - The current date fetched from the database
    * @param {number} currentDayNumber - The current day number relative to the start date
    * @param {string} periodId - Period ID (default: "reviewHistory1")
+   * @param {string} grouping - Time grouping ('Days', 'Weeks', 'Months', default: 'Days')
    * @returns {Object|null} - Review history statistics or null if failed
    */
-  function fetchReviewHistory(dbInstance, language, deckId, logFn, currentDate, currentDayNumber, periodId = "reviewHistory1") {
+  function fetchReviewHistory(dbInstance, language, deckId, logFn, currentDate, currentDayNumber, periodId = "reviewHistory1", grouping = "Days") {
     try {
       const period = periodId.replace("reviewHistory", "");
       const startDate = new Date(CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY);
@@ -1810,7 +1872,7 @@ function debounce(func, wait) {
       
       const periodDaysAgoDayNumber = currentDayNumber - periodDays;
       
-      logFn(`Fetching review history since day ${periodDaysAgoDayNumber} (${periodDays} days ago)`);
+      logFn(`Fetching review history since day ${periodDaysAgoDayNumber} (${periodDays} days ago), grouped by ${grouping}`);
       
       let reviewQuery = SQL_QUERIES.REVIEW_HISTORY_QUERY;
       let reviewQueryParams = [language, periodDaysAgoDayNumber];
@@ -1830,6 +1892,7 @@ function debounce(func, wait) {
       const type1Counts = [];
       const type2Counts = [];
       const dayMap = new Map();
+      const aggregateMap = new Map();
       
       let actualPeriodDays = periodDays;
       if (period === "All" && reviewResults.length > 0 && reviewResults[0].values.length > 0) {
@@ -1840,29 +1903,62 @@ function debounce(func, wait) {
         });
         
         const daysWithData = currentDayNumber - earliestDayWithReviews + 1;
-        actualPeriodDays = Math.min(periodDays, daysWithData + 5);
+        actualPeriodDays = Math.min(periodDays, daysWithData);
         logFn(`Found earliest day with reviews: ${earliestDayWithReviews}, using period: ${actualPeriodDays} days`);
       }
       
+      let currentGroupKey = null;
+      let groupIndex = -1;
       for (let i = 0; i < actualPeriodDays; i++) {
-        const dayNumber = currentDayNumber - i;
+        const dayNumber = currentDayNumber - (actualPeriodDays - 1 - i);
         const date = new Date(startDate);
         date.setDate(date.getDate() + dayNumber);
+        date.setHours(0, 0, 0, 0);
         
-        let displayDate = date.toLocaleDateString(undefined, {
-          month: 'short',
-          day: 'numeric',
-          year: 'numeric'
-        });
-        if (SETTINGS.ENVIRONMENT === "dev") {
-          displayDate += ` (${currentDayNumber - i})`;
-        }        
-
-        dateLabels.unshift(displayDate);
-        type0Counts.unshift(0);
-        type1Counts.unshift(0);
-        type2Counts.unshift(0);
-        dayMap.set(dayNumber, { index: actualPeriodDays - 1 - i, displayDate });
+        let displayDate;
+        let groupKey;
+        
+        if (grouping === 'Weeks') {
+          const dayOfWeek = (date.getDay() + 6) % 7;
+          const weekStartDate = new Date(date);
+          weekStartDate.setDate(date.getDate() - dayOfWeek);
+          groupKey = weekStartDate.toISOString().split('T')[0];
+          
+          if (groupKey !== currentGroupKey) {
+            displayDate = weekStartDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+            dateLabels.push(`Week of ${displayDate}`);
+            type0Counts.push(0);
+            type1Counts.push(0);
+            type2Counts.push(0);
+            currentGroupKey = groupKey;
+            groupIndex++;
+            aggregateMap.set(groupKey, { index: groupIndex, data: [0, 0, 0] });
+          }
+        } else if (grouping === 'Months') {
+          groupKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+          
+          if (groupKey !== currentGroupKey) {
+            displayDate = date.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+            dateLabels.push(displayDate);
+            type0Counts.push(0);
+            type1Counts.push(0);
+            type2Counts.push(0);
+            currentGroupKey = groupKey;
+            groupIndex++;
+            aggregateMap.set(groupKey, { index: groupIndex, data: [0, 0, 0] });
+          }
+        } else {
+          groupKey = dayNumber;
+          displayDate = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+          if (SETTINGS.ENVIRONMENT === "dev") {
+            displayDate += ` (${dayNumber})`;
+          }
+          dateLabels.push(displayDate);
+          type0Counts.push(0);
+          type1Counts.push(0);
+          type2Counts.push(0);
+          dayMap.set(dayNumber, { index: i });
+        }
       }
       
       if (reviewResults.length > 0 && reviewResults[0].values.length > 0) {
@@ -1872,18 +1968,53 @@ function debounce(func, wait) {
           const dayNumber = row[0];
           const reviewType = row[1];
           const count = row[2];
+          const date = new Date(startDate);
+          date.setDate(date.getDate() + dayNumber);
+          date.setHours(0, 0, 0, 0);
           
-          if (dayMap.has(dayNumber)) {
-            const { index } = dayMap.get(dayNumber);
+          let targetIndex = -1;
+          let targetMapEntry = null;
+          
+          if (grouping === 'Weeks') {
+            const dayOfWeek = (date.getDay() + 6) % 7;
+            const weekStartDate = new Date(date);
+            weekStartDate.setDate(date.getDate() - dayOfWeek);
+            const groupKey = weekStartDate.toISOString().split('T')[0];
+            if (aggregateMap.has(groupKey)) {
+               targetMapEntry = aggregateMap.get(groupKey);
+               targetIndex = targetMapEntry.index;
+            }
+          } else if (grouping === 'Months') {
+            const groupKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+            if (aggregateMap.has(groupKey)) {
+              targetMapEntry = aggregateMap.get(groupKey);
+              targetIndex = targetMapEntry.index;
+            }
+          } else {
+            if (dayMap.has(dayNumber)) {
+              targetIndex = dayMap.get(dayNumber).index;
+            }
+          }
+          
+          if (targetIndex !== -1) {
             if (reviewType === 0) {
-              type0Counts[index] = count;
+               if (grouping === 'Days') type0Counts[targetIndex] += count; else targetMapEntry.data[0] += count;
             } else if (reviewType === 1) {
-              type1Counts[index] = count;
+               if (grouping === 'Days') type1Counts[targetIndex] += count; else targetMapEntry.data[1] += count;
             } else if (reviewType === 2) {
-              type2Counts[index] = count;
+               if (grouping === 'Days') type2Counts[targetIndex] += count; else targetMapEntry.data[2] += count;
             }
           }
         });
+        
+        if (grouping === 'Weeks' || grouping === 'Months') {
+            aggregateMap.forEach(entry => {
+                type0Counts[entry.index] = entry.data[0];
+                type1Counts[entry.index] = entry.data[1];
+                type2Counts[entry.index] = entry.data[2];
+            });
+        }
+        
       } else {
         logFn("Review history query returned no results");
       }
@@ -1891,7 +2022,7 @@ function debounce(func, wait) {
       return { 
         labels: dateLabels, 
         counts: [type0Counts, type1Counts, type2Counts],
-        typeLabels: ['Lessons', 'Failed reviews', 'Successful reviews']
+        typeLabels: ['New cards', 'Failed reviews', 'Successful reviews']
       };
     } catch (error) {
       logFn("Error fetching review history:", error);
@@ -2236,7 +2367,8 @@ function debounce(func, wait) {
               extensionLog,
               currentDate,
               currentDayNumber,
-              vueInstance ? vueInstance.selectedPeriodReviewHistory : "reviewHistory1"
+              vueInstance ? vueInstance.selectedPeriodReviewHistory : "reviewHistory1",
+              vueInstance ? vueInstance.selectedReviewGrouping : "Days"
             );
             
             const studyStatsData = fetchStudyStats(
@@ -2493,6 +2625,67 @@ function debounce(func, wait) {
             </span>
           </li>
         </ul>
+      </div>
+    </div>
+    `
+  };
+
+  const RadioButtonGroup = {
+    props: {
+      options: {
+        type: Array,
+        required: true,
+      },
+      modelValue: {
+        type: String,
+        required: true,
+      },
+      componentHash: String,
+      name: {
+        type: String,
+        default: 'radio-group'
+      }
+    },
+    emits: ['update:modelValue'],
+    methods: {
+      handleChange(event) {
+        this.$emit('update:modelValue', event.target.value);
+      }
+    },
+    template: `
+    <div v-bind:[componentHash]="true" class="MCS__radio-group" role="radiogroup">
+      <div 
+        v-for="option in options" 
+        :key="option.id" 
+        class="UiCheckbox -radio" 
+        :class="{ '-toggled': modelValue === option.id }"
+        v-bind:[componentHash]="true"
+      >
+        <div class="UiCheckbox__input">
+          <input 
+            type="radio" 
+            :name="name" 
+            :id="name + '-' + option.id" 
+            :value="option.id" 
+            :checked="modelValue === option.id" 
+            @change="handleChange" 
+            class="UiCheckbox__input__element"
+            v-bind:[componentHash]="true"
+          >
+          <div class="UiCheckbox__icon__container">
+            <div
+              class="UiCheckbox__icon MCS__radio-button"
+              :class="{ '-toggled': modelValue === option.id }"
+            >
+              <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none" />
+              </svg>
+            </div>
+          </div>
+        </div>
+        <label :for="name + '-' + option.id" class="UiCheckbox__label UiTypo UiTypo__caption">
+          {{ option.name }}
+        </label>
       </div>
     </div>
     `
@@ -2948,7 +3141,8 @@ function debounce(func, wait) {
   
   const ReviewHistoryCard = {
     components: {
-      DropdownMenu
+      DropdownMenu,
+      RadioButtonGroup
     },
     props: {
       reviewStats: Object,
@@ -2957,6 +3151,10 @@ function debounce(func, wait) {
       selectedPeriod: {
         type: String,
         default: "reviewHistory1"
+      },
+      selectedGrouping: {
+        type: String,
+        default: "Days"
       }
     },
     data() {
@@ -2968,6 +3166,11 @@ function debounce(func, wait) {
           { id: "reviewHistory6", name: '6 Months' },
           { id: "reviewHistory12", name: '12 Months' },
           { id: "reviewHistoryAll", name: 'All time' }
+        ],
+        groupingOptions: [
+          { id: "Days", name: 'Days' },
+          { id: "Weeks", name: 'Weeks' },
+          { id: "Months", name: 'Months' }
         ]
       };
     },
@@ -2979,11 +3182,22 @@ function debounce(func, wait) {
         set(value) {
           this.$emit('period-change', value);
         }
+      },
+      currentGrouping: {
+        get() {
+          return this.selectedGrouping;
+        },
+        set(value) {
+          this.$emit('grouping-change', value);
+        }
       }
     },
     methods: {
       handlePeriodChange(period) {
         this.currentPeriod = period;
+      },
+      handleGroupingChange(grouping) {
+        this.currentGrouping = grouping;
       }
     },
     mounted() {
@@ -3037,6 +3251,14 @@ function debounce(func, wait) {
             </dropdown-menu>
           </div>
         </div>
+        <radio-button-group
+          style="margin-right: 8px;"
+          :options="groupingOptions"
+          :modelValue="currentGrouping"
+          @update:modelValue="handleGroupingChange"
+          name="review-grouping"
+          :component-hash="componentHash"
+        />
         <div v-bind:[componentHash]="true" class="MCS__reviewchart">
           <canvas ref="canvas"></canvas>
         </div>
@@ -3045,6 +3267,14 @@ function debounce(func, wait) {
         <div v-bind:[componentHash]="true" class="Statistic__card__header">
           <h3 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading3 -heading">Review History</h3>
           <div class="MCS__header-selector">
+            <radio-button-group
+              style="margin-right: 8px;"
+              :options="groupingOptions"
+              :modelValue="currentGrouping"
+              @update:modelValue="handleGroupingChange"
+              name="review-grouping-fallback"
+              :component-hash="componentHash"
+            />
             <dropdown-menu
               :items="periodOptions"
               :modelValue="currentPeriod"
@@ -3144,7 +3374,8 @@ function debounce(func, wait) {
         MessageCard,
         IntervalStatsCard,
         ReviewHistoryCard,
-        StudyStatsCard
+        StudyStatsCard,
+        RadioButtonGroup
       },
       data() {
         return {
@@ -3162,6 +3393,7 @@ function debounce(func, wait) {
           selectedPeriodStudyStats: "studyStats1",
           selectedPeriodReviewHistory: "reviewHistory1",
           selectedDuePeriod: "dueStats1",
+          selectedReviewGrouping: "Days",
           componentHash,
           currentTheme: getCurrentTheme(),
           wordChartRendered: false,
@@ -3372,6 +3604,13 @@ function debounce(func, wait) {
           this.selectedPeriodReviewHistory = period;
           runFilteredStatsQuery(this);
         },
+        handleReviewHistoryGroupingChange(grouping) {
+          if (this.selectedReviewGrouping === grouping) {
+             return;
+          }
+          this.selectedReviewGrouping = grouping;
+          runFilteredStatsQuery(this);
+        },
         handleDuePeriodChange(period) {
           if (this.selectedDuePeriod === period) {
             return;
@@ -3512,12 +3751,14 @@ function debounce(func, wait) {
               <!-- Review History -->
               <review-history-card 
                 :review-stats="reviewStats"
-                :selectedPeriod="selectedPeriodReviewHistory" 
-                :component-hash="componentHash" 
+                :selectedPeriod="selectedPeriodReviewHistory"
+                :selectedGrouping="selectedReviewGrouping"
+                :component-hash="componentHash"
                 chart-ref="reviewChart"
                 @canvas-mounted="handleReviewCanvasMounted"
                 @canvas-unmounted="handleReviewCanvasUnmounted"
                 @period-change="handleReviewHistoryPeriodChange"
+                @grouping-change="handleReviewHistoryGroupingChange"
               />
             </div>
           </template>
