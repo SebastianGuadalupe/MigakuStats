@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Migaku Custom Stats
 // @namespace    http://tampermonkey.net/
-// @version      0.1.18
+// @version      0.1.19
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
 // @license      GPL-3.0
@@ -12,7 +12,7 @@
 // @require      https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js
 // @require      https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js
 // @require      https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js
-// @require      https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.min.prod.js
+// @require      https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.min.js
 // @grant        GM_addStyle
 // ==/UserScript==
 
