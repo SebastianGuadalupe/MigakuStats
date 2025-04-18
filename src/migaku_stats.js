@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Migaku Custom Stats
 // @namespace    http://tampermonkey.net/
-// @version      0.1.19
+// @version      0.1.20
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
 // @license      GPL-3.0
@@ -657,6 +657,10 @@ function debounce(func, wait) {
                 label: function(context) {
                   const value = context.parsed.y;
                   return `${context.dataset.label}: ${value}`;
+                },
+                footer: function(tooltipItems) {
+                  const total = tooltipItems.reduce((sum, item) => sum + item.parsed.y, 0);
+                  return `Total: ${total}`;
                 }
               },
               backgroundColor: themeColors.backgroundElevation2,
@@ -2046,12 +2050,15 @@ function debounce(func, wait) {
       const startDate = new Date(CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY);
       
       let periodDays;
+      let startDayNumber;
+      let earliestReviewDayForAllTime = null;
+
       if (period === "All") {
         let earliestReviewQuery = `SELECT MIN(r.day) as minDay 
                                    FROM review r 
                                    JOIN card c ON r.cardId = c.id 
                                    JOIN card_type ct ON c.cardTypeId = ct.id 
-                                   WHERE ct.lang = ? AND c.del = 0`;
+                                   WHERE ct.lang = ? AND r.del = 0`;
         
         let earliestReviewParams = [language];
         
@@ -2065,14 +2072,14 @@ function debounce(func, wait) {
         if (earliestReviewResults.length > 0 && 
             earliestReviewResults[0].values.length > 0 && 
             earliestReviewResults[0].values[0][0] !== null) {
-          const earliestDayWithReviews = earliestReviewResults[0].values[0][0];
-          
-          periodDays = currentDayNumber - earliestDayWithReviews + 1;
-          logFn(`Found earliest review day: ${earliestDayWithReviews}, setting period to ${periodDays} days`);
+          earliestReviewDayForAllTime = earliestReviewResults[0].values[0][0];
+          periodDays = currentDayNumber - earliestReviewDayForAllTime + 1;
+          startDayNumber = earliestReviewDayForAllTime;
+          logFn(`Found earliest review day (All time): ${earliestReviewDayForAllTime}, setting period to ${periodDays} days`);
         } else {
-          
-          periodDays = currentDayNumber;
-          logFn(`No earliest review day found, using full period: ${periodDays} days`);
+          periodDays = currentDayNumber + 1;
+          startDayNumber = 0;
+          logFn(`No earliest review day found (All time), using full period: ${periodDays} days`);
         }
       } else {
         const periodMonths = parseInt(period, 10) || 1;
@@ -2081,11 +2088,11 @@ function debounce(func, wait) {
         const periodStartDate = new Date(today);
         periodStartDate.setMonth(today.getMonth() - periodMonths);
         periodDays = Math.round((today - periodStartDate) / (1000 * 60 * 60 * 24)) + 1;
+        startDayNumber = currentDayNumber - periodDays + 1;
+        logFn(`Using fixed period: ${periodMonths} months (${periodDays} days), starting from day ${startDayNumber}`);
       }
       
-      const startDayNumber = currentDayNumber - periodDays + 1;
-      
-      logFn(`Fetching study stats since day ${startDayNumber} (${periodDays} days ago)`);
+      logFn(`Fetching study stats from day ${startDayNumber} to ${currentDayNumber}`);
       
       let studyQuery = SQL_QUERIES.STUDY_STATS_QUERY;
       let studyQueryParams = [language, startDayNumber, currentDayNumber];
@@ -2107,9 +2114,16 @@ function debounce(func, wait) {
         const total_reviews = studyResults[0].values[0][1] || 0;
         const avg_reviews_per_day = studyResults[0].values[0][2] || 0;
 
-        logFn(`Days studied: ${days_studied}, Total reviews: ${total_reviews}, Avg reviews per day: ${avg_reviews_per_day}, Period days: ${periodDays}`);
+        let denominator;
+        if (period === "All" && earliestReviewDayForAllTime !== null && days_studied > 0) {
+          denominator = currentDayNumber - earliestReviewDayForAllTime + 1;
+        } else {
+           denominator = Math.max(1, periodDays);
+        }
+
+        logFn(`Days studied: ${days_studied}, Total reviews: ${total_reviews}, Avg reviews per day: ${avg_reviews_per_day}, Period days (calculated): ${periodDays}, Denominator for %: ${denominator}`);
         
-        const daysStudiedPercent = Math.round((days_studied / periodDays) * 100);
+        const daysStudiedPercent = Math.round((days_studied / denominator) * 100);
         
         return {
           days_studied,
@@ -2314,9 +2328,9 @@ function debounce(func, wait) {
             
             let currentDateString = null;
             let currentDate = new Date();
-            currentDate.setHours(0, 0, 0, 0);
+            currentDate.setHours(12, 0, 0, 0);
             let currentDayNumber = 0;
-            const startDate = new Date(CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY);
+            const startDate = new Date(CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY, 12, 0, 0, 0);
             
             try {
               const dateResult = dbInstance.exec(SQL_QUERIES.CURRENT_DATE_QUERY);
@@ -2330,7 +2344,7 @@ function debounce(func, wait) {
             } catch (dateError) {
               extensionLog("Error fetching current date from DB, falling back to system time:", dateError);
             }
-            currentDayNumber = Math.floor((currentDate - startDate) / (1000 * 60 * 60 * 24));
+            currentDayNumber = Math.floor((currentDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
             
             const decks = fetchDecks(dbInstance, appState.selectedLanguage, extensionLog);
             dbState.availableDecks = decks;
