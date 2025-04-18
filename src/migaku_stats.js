@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Migaku Custom Stats
 // @namespace    http://tampermonkey.net/
-// @version      0.1.20
+// @version      0.1.21
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
 // @license      GPL-3.0
@@ -671,6 +671,7 @@ function debounce(func, wait) {
               boxPadding: CHART_CONFIG.TOOLTIP_CONFIG.BOX_PADDING,
               multiKeyBackground: themeColors.backgroundElevation1,
               bodyColor: themeColors.textColor,
+              footerColor: themeColors.textColor,
               titleColor: themeColors.textColor,
             }
           },
@@ -698,6 +699,7 @@ function debounce(func, wait) {
           this.reviewChartInstance.options.plugins.tooltip.backgroundColor = themeColors.backgroundElevation2;
           this.reviewChartInstance.options.plugins.tooltip.bodyColor = themeColors.textColor;
           this.reviewChartInstance.options.plugins.tooltip.titleColor = themeColors.textColor;
+          this.reviewChartInstance.options.plugins.tooltip.footerColor = themeColors.textColor;
           this.reviewChartInstance.options.plugins.legend.labels.color = themeColors.textColor;
           
           this.reviewChartInstance.update();
@@ -1929,7 +1931,7 @@ function debounce(func, wait) {
           groupKey = weekStartDate.toISOString().split('T')[0];
           
           if (groupKey !== currentGroupKey) {
-            displayDate = weekStartDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+            displayDate = weekStartDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
             dateLabels.push(`Week of ${displayDate}`);
             type0Counts.push(0);
             type1Counts.push(0);
