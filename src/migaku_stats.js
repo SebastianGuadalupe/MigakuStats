@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Migaku Custom Stats
 // @namespace    http://tampermonkey.net/
-// @version      0.1.21
+// @version      0.1.22
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
 // @license      GPL-3.0
@@ -168,8 +168,15 @@ function debounce(func, wait) {
     CURRENT_DATE_QUERY: `
       SELECT entry 
       FROM keyValue
-      WHERE key = 'study.activeDay.currentDate';
-    `
+      WHERE key = 'study.activeDay.currentDate';`,
+    PASS_RATE_QUERY: `
+        SELECT 
+          SUM(CASE WHEN r.type = 2 THEN 1 ELSE 0 END) as successful_reviews,
+          SUM(CASE WHEN r.type = 1 THEN 1 ELSE 0 END) as failed_reviews
+        FROM review r
+        JOIN card c ON r.cardId = c.id
+        JOIN card_type ct ON c.cardTypeId = ct.id
+        WHERE ct.lang = ? AND r.day BETWEEN ? AND ? AND r.del = 0 AND r.type IN (1, 2);`
   };
 
   // UI/Display texts
@@ -271,7 +278,7 @@ function debounce(func, wait) {
     
     .MCS__study-stats {
         display: grid;
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: repeat(4, 1fr);
         gap: 16px;
         margin: 16px 0;
     }
@@ -2107,7 +2114,19 @@ function debounce(func, wait) {
         studyQueryParams.push(deckId);
       }
       
+      let passRateQuery = SQL_QUERIES.PASS_RATE_QUERY;
+      let passRateQueryParams = [language, startDayNumber, currentDayNumber];
+      
+      if (deckId !== SETTINGS.DEFAULT_DECK_ID) {
+        passRateQuery = passRateQuery.replace(
+          "AND r.del = 0", 
+          "AND c.deckId = ? AND r.del = 0" 
+        );
+        passRateQueryParams.push(deckId);
+      }
+      
       const studyResults = dbInstance.exec(studyQuery, studyQueryParams);
+      const passRateResults = dbInstance.exec(passRateQuery, passRateQueryParams);
       
       if (studyResults.length > 0 && studyResults[0].values.length > 0) {
         logFn("Study stats query results:", studyResults[0]);
@@ -2127,12 +2146,26 @@ function debounce(func, wait) {
         
         const daysStudiedPercent = Math.round((days_studied / denominator) * 100);
         
+        let pass_rate = 0;
+        if (passRateResults.length > 0 && passRateResults[0].values.length > 0) {
+          const successful_reviews = passRateResults[0].values[0][0] || 0;
+          const failed_reviews = passRateResults[0].values[0][1] || 0;
+          const total_answered_reviews = successful_reviews + failed_reviews;
+          
+          if (total_answered_reviews > 0) {
+            pass_rate = Math.round((successful_reviews / total_answered_reviews) * 100);
+          }
+          
+          logFn(`Pass rate calculation: ${successful_reviews} successful of ${total_answered_reviews} total = ${pass_rate}%`);
+        }
+        
         return {
           days_studied,
           days_studied_percent: daysStudiedPercent,
           total_reviews,
           avg_reviews_per_day,
-          period_days: periodDays
+          period_days: periodDays,
+          pass_rate
         };
       } else {
         logFn("Study stats query returned no results");
@@ -2141,7 +2174,8 @@ function debounce(func, wait) {
           days_studied_percent: 0,
           total_reviews: 0,
           avg_reviews_per_day: 0,
-          period_days: periodDays
+          period_days: periodDays,
+          pass_rate: 0
         };
       }
     } catch (error) {
@@ -3080,23 +3114,6 @@ function debounce(func, wait) {
         this.$emit('period-change', period);
       }
     },
-    mounted() {
-      this.$nextTick(() => {
-        if (this.$refs.canvas) {
-          this.$emit('canvas-mounted', this.$refs.canvas);
-        }
-      });
-    },
-    updated() {
-      this.$nextTick(() => {
-        if (this.$refs.canvas) {
-          this.$emit('canvas-mounted', this.$refs.canvas);
-        }
-      });
-    },
-    beforeUnmount() {
-      this.$emit('canvas-unmounted');
-    },
     template: `
       <div v-if="studyStats" v-bind:[componentHash]="true" class="MCS__study-stats-card">
         <div v-bind:[componentHash]="true" class="Statistic__card__header">
@@ -3135,6 +3152,10 @@ function debounce(func, wait) {
           <div v-bind:[componentHash]="true" class="MCS__stat-box">
             <div v-bind:[componentHash]="true" class="MCS__stat-value">{{ studyStats.days_studied_percent }}%</div>
             <div v-bind:[componentHash]="true" class="MCS__stat-label">of days studied</div>
+          </div>
+          <div v-bind:[componentHash]="true" class="MCS__stat-box">
+            <div v-bind:[componentHash]="true" class="MCS__stat-value">{{ studyStats.pass_rate }}%</div>
+            <div v-bind:[componentHash]="true" class="MCS__stat-label">Pass rate</div>
           </div>
           <div v-bind:[componentHash]="true" class="MCS__stat-box">
             <div v-bind:[componentHash]="true" class="MCS__stat-value">{{ studyStats.total_reviews.toLocaleString() }}</div>
