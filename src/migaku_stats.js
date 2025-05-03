@@ -1,13 +1,11 @@
 // ==UserScript==
 // @name         Migaku Custom Stats
 // @namespace    http://tampermonkey.net/
-// @version      0.1.22
+// @version      0.1.23
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
 // @license      GPL-3.0
-// @match        https://study.migaku.com/
-// @match        https://study.migaku.com/statistic
-// @match        https://study.migaku.com/collection
+// @match        https://study.migaku.com/*
 // @run-at       document-idle
 // @require      https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js
 // @require      https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js
@@ -1689,9 +1687,8 @@ function debounce(func, wait) {
         const maxDueResults = dbInstance.exec(maxDueQuery, maxDueParams);
         
         if (maxDueResults.length > 0 && maxDueResults[0].values.length > 0 && maxDueResults[0].values[0][0] !== null) {
-          const maxDueDay = maxDueResults[0].values[0][0];
-          endDayNumber = Math.min(currentDayNumber + 365, maxDueDay);
-          logFn(`Found max due day: ${maxDueDay}, using end day: ${endDayNumber}`);
+          endDayNumber = maxDueResults[0].values[0][0];
+          logFn(`Found max due day: ${endDayNumber}`);
         } else {
           endDayNumber = currentDayNumber + forecastDays - 1;
           logFn(`No max due day found, using default: ${endDayNumber}`);
