@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Migaku Custom Stats
 // @namespace    http://tampermonkey.net/
-// @version      0.1.25
+// @version      0.1.26
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
 // @license      GPL-3.0
@@ -225,10 +225,8 @@ function debounce(func, wait) {
 
   const css = `
     .MCS__container {
-        margin: 32px 0;
         display: flex;
         flex-direction: column;
-        gap: 16px;
     }
 
     .MCS__wordcount {
@@ -306,7 +304,6 @@ function debounce(func, wait) {
         margin: 16px 0;
     }
     
-    /* Make sure canvas elements are visible */
     canvas {
         display: block;
         position: absolute;
@@ -354,6 +351,37 @@ function debounce(func, wait) {
       height: 12px;
       border-radius: 50%;
       background-image: linear-gradient(180deg,var(--primary-gradient-1),var(--primary-gradient-2));
+    }
+
+    @media (min-width: 1280px) {
+      .MCS__stats-container {
+        display: grid;
+        grid-template-areas:
+          "gridTitle customStats"
+          "gridContainer customStats";
+        grid-template-rows: auto 1fr;
+        align-items: start;
+        justify-content: center;
+        column-gap: 32px;
+      }
+    }
+
+    .UiTypo.UiTypo__heading2.-heading.Statistic__title {
+      grid-area: gridTitle;
+    }
+
+    .UiCard.-lesson.Statistic__card {
+      grid-area: gridContainer;
+    }
+
+    #migaku-custom-stats-vue-container {
+      grid-area: customStats;
+    }
+
+    @media (max-width: 1280px) {
+      .CustomStats__title {
+        margin-top: 32px !important;
+      }
     }
     `;
 
@@ -3356,6 +3384,11 @@ function debounce(func, wait) {
     }
     extensionLog("Target element confirmed for display:", targetElementSelector);
 
+    if (statsContainer) {
+      statsContainer.style.maxWidth = "100%";
+      statsContainer.classList.add("MCS__stats-container");
+    }
+
     const oldVueContainer = statsContainer.querySelector(`#${SELECTORS.VUE_CONTAINER_ID}`);
     if (oldVueContainer) oldVueContainer.remove();
 
@@ -3735,7 +3768,7 @@ function debounce(func, wait) {
             />
           </template>
           <template v-else>
-            <h2 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading2 -heading Statistic__title">Migaku Custom Stats</h2>
+            <h2 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading2 -heading Statistic__title CustomStats__title">Migaku Custom Stats</h2>
             <div v-bind:[componentHash]="true" class="UiCard -lesson Statistic__card">
               <!-- Deck Selector -->
               <deck-selector 
