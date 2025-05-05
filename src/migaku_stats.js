@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Migaku Custom Stats
 // @namespace    http://tampermonkey.net/
-// @version      0.1.26
+// @version      0.1.27
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
 // @license      GPL-3.0
@@ -277,6 +277,12 @@ function debounce(func, wait) {
         grid-template-columns: repeat(4, 1fr);
         gap: 16px;
         margin: 16px 0;
+    }
+
+    @media (max-width: 1280px) {
+      .MCS__study-stats {
+        grid-template-columns: repeat(2, 1fr);
+      }
     }
     
     .MCS__stat-box {
@@ -3385,7 +3391,8 @@ function debounce(func, wait) {
     extensionLog("Target element confirmed for display:", targetElementSelector);
 
     if (statsContainer) {
-      statsContainer.style.maxWidth = "100%";
+      statsContainer.style.maxWidth = "calc(100% - 32px)";
+      statsContainer.parentElement.style.maxWidth = "100vw";
       statsContainer.classList.add("MCS__stats-container");
     }
 
