@@ -126,13 +126,18 @@ function debounce(func, wait) {
           JOIN deck d ON c.deckId = d.id
           WHERE w.language = ? AND w.del = 0 AND d.id = ? AND c.del = 0
       ) as w`,
-    DUE_QUERY: `
-      SELECT
-        due,
-        COUNT(*) as count
-      FROM card c
-      JOIN card_type ct ON c.cardTypeId = ct.id
-      WHERE ct.lang = ? AND c.due BETWEEN ? AND ? AND c.del = 0`,
+      DUE_QUERY: `
+        SELECT
+          due,
+          CASE
+            WHEN c.interval < 7 THEN 'short'
+            WHEN c.interval < 21 THEN 'medium'
+            ELSE 'long'
+          END as interval_range,
+          COUNT(*) as count
+        FROM card c
+        JOIN card_type ct ON c.cardTypeId = ct.id
+        WHERE ct.lang = ? AND c.due BETWEEN ? AND ? AND c.del = 0`,
     INTERVAL_QUERY: `
       SELECT
         interval as interval_group,
@@ -778,7 +783,7 @@ function debounce(func, wait) {
         return null;
       }
       
-      if (!dueStats || !dueStats.labels || !dueStats.counts) {
+      if (!dueStats || !dueStats.labels || (!dueStats.counts && !dueStats.shortIntervalCounts && !dueStats.mediumIntervalCounts && !dueStats.longIntervalCounts)) {
         logFn("Chart creation aborted: dueStats data is missing", dueStats);
         return null;
       }
@@ -797,33 +802,71 @@ function debounce(func, wait) {
         cumulativeCounts.push(runningSum);
       }
       
+      const datasets = [];
+      
+      if (dueStats.shortIntervalCounts && dueStats.mediumIntervalCounts && dueStats.longIntervalCounts) {
+        datasets.push({
+          label: 'New',
+          data: dueStats.shortIntervalCounts,
+          backgroundColor: themeColors.barColor.includes('rgba') ?
+            themeColors.barColor.replace(/[\d\.]+\)$/, '0.5)') :
+            themeColors.barColor + '99',
+          borderWidth: 0,
+          borderRadius: 2,
+          order: 4
+        });
+        
+        datasets.push({
+          label: 'Learning',
+          data: dueStats.mediumIntervalCounts,
+          backgroundColor: themeColors.barColor.includes('rgba') ? 
+            themeColors.barColor.replace(/[\d\.]+\)$/, '0.75)') : 
+            themeColors.barColor + '40',
+          borderWidth: 0,
+          borderRadius: 2,
+          order: 3
+        });
+        
+        datasets.push({
+          label: 'Reviewing',
+          data: dueStats.longIntervalCounts,
+          backgroundColor: themeColors.barColor.includes('rgba') ? 
+            themeColors.barColor.replace(/[\d\.]+\)$/, '1)') : 
+            themeColors.barColor + '1A',
+          borderWidth: 0,
+          borderRadius: 2,
+          order: 2
+        });
+      } else {
+        datasets.push({
+          label: 'Cards Due',
+          data: dueStats.counts,
+          backgroundColor: themeColors.barColor,
+          borderWidth: 0,
+          borderRadius: 4,
+          order: 2
+        });
+      }
+      
+      datasets.push({
+        label: 'Cumulative Cards',
+        data: cumulativeCounts,
+        type: 'line',
+        borderColor: themeColors.unknownColor,
+        backgroundColor: themeColors.unknownColor,
+        borderWidth: 2,
+        pointStyle: false,
+        tension: 0.4,
+        fill: 'origin',
+        yAxisID: 'y1',
+        order: 1
+      });
+      
       const chartConfig = {
         type: 'bar',
         data: {
           labels: dueStats.labels,
-          datasets: [
-            {
-              label: 'Cards Due',
-              data: dueStats.counts,
-              backgroundColor: themeColors.barColor,
-              borderWidth: 0,
-              borderRadius: 4,
-              order: 2
-            },
-            {
-              label: 'Cumulative Cards',
-              data: cumulativeCounts,
-              type: 'line',
-              borderColor: themeColors.unknownColor,
-              backgroundColor: themeColors.unknownColor,
-              borderWidth: 2,
-              pointStyle: false,
-              tension: 0.4,
-              fill: 'origin',
-              yAxisID: 'y1',
-              order: 1
-            }
-          ],
+          datasets: datasets,
         },
         options: {
           responsive: true,
@@ -835,6 +878,7 @@ function debounce(func, wait) {
           scales: {
             y: {
               beginAtZero: true,
+              stacked: true,
               title: {
                 display: true,
                 text: 'Cards Due',
@@ -865,6 +909,7 @@ function debounce(func, wait) {
               },
             },
             x: {
+              stacked: true,
               title: {
                 display: true,
                 text: 'Date',
@@ -902,17 +947,12 @@ function debounce(func, wait) {
                   const value = context.parsed.y;
                   const total = cumulativeCounts[cumulativeCounts.length - 1];
                   
-                  if (datasetLabel === 'Cards Due' && value > 0) {
-                    const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
-                    return `${datasetLabel}: ${value} (${percentage}%)`;
-                  }
-                  
-                  if (datasetLabel === 'Cumulative Cards') {
-                    const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
-                    return `${datasetLabel}: ${value} (${percentage}%)`;
-                  }
-                  
-                  return `${datasetLabel}: ${value}`;
+                  const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
+                  return `${datasetLabel}: ${value} (${percentage}%)`;
+                },
+                footer: function(context) {
+                  const values = context.filter(i => i.dataset.label.includes('Cumulative')).map(i => i.parsed.y);
+                  return values.length > 0 ? `Total: ${values.reduce((a, b) => a + b, 0)}` : '';
                 }
               },
               backgroundColor: themeColors.backgroundElevation2,
@@ -923,6 +963,7 @@ function debounce(func, wait) {
               boxPadding: CHART_CONFIG.TOOLTIP_CONFIG.BOX_PADDING,
               multiKeyBackground: themeColors.backgroundElevation1,
               bodyColor: themeColors.textColor,
+              footerColor: themeColors.textColor,
               titleColor: themeColors.textColor,
             }
           },
@@ -933,6 +974,8 @@ function debounce(func, wait) {
         if (this.dueChartInstance) {
           logFn("Updating existing due chart with new data");
           
+          this.dueChartInstance.data.labels = dueStats.labels;
+          
           const newCumulativeCounts = [];
           let newRunningSum = 0;
           for (let i = 0; i < dueStats.counts.length; i++) {
@@ -940,66 +983,74 @@ function debounce(func, wait) {
             newCumulativeCounts.push(newRunningSum);
           }
           
-          this.dueChartInstance.data.labels = dueStats.labels;
-          this.dueChartInstance.data.datasets[0].data = dueStats.counts;
+          this.dueChartInstance.data.datasets = [];
           
-          if (this.dueChartInstance.data.datasets.length > 1) {
-            this.dueChartInstance.data.datasets[1].data = newCumulativeCounts;
-            this.dueChartInstance.data.datasets[1].borderColor = themeColors.unknownColor;
-            this.dueChartInstance.data.datasets[1].backgroundColor = themeColors.unknownColor;
-          } else {
+          if (dueStats.shortIntervalCounts && dueStats.mediumIntervalCounts && dueStats.longIntervalCounts) {
             this.dueChartInstance.data.datasets.push({
-              label: 'Cumulative Cards',
-              data: newCumulativeCounts,
-              type: 'line',
-              borderColor: themeColors.unknownColor,
-              backgroundColor: themeColors.unknownColor,
-              borderWidth: 2,
-              pointStyle: false,
-              tension: 0.4,
-              yAxisID: 'y1',
-              order: 1
+              label: 'New',
+              data: dueStats.shortIntervalCounts,
+              backgroundColor: themeColors.barColor.includes('rgba') ? 
+                themeColors.barColor.replace(/[\d\.]+\)$/, '0.5)') : 
+                themeColors.barColor + '99',
+              borderWidth: 0,
+              borderRadius: 2,
+              order: 4
             });
             
-            if (!this.dueChartInstance.options.scales.y1) {
-              this.dueChartInstance.options.scales.y1 = {
-                position: 'right',
-                beginAtZero: true,
-                title: {
-                  display: true,
-                  text: 'Cumulative Cards',
-                  color: themeColors.textColor
-                },
-                ticks: {
-                  color: themeColors.textColor,
-                  precision: 0,
-                },
-                grid: {
-                  drawOnChartArea: false,
-                },
-              };
-            }
+            this.dueChartInstance.data.datasets.push({
+              label: 'Learning',
+              data: dueStats.mediumIntervalCounts,
+              backgroundColor: themeColors.barColor.includes('rgba') ? 
+                themeColors.barColor.replace(/[\d\.]+\)$/, '0.75)') : 
+                themeColors.barColor + '40',
+              borderWidth: 0,
+              borderRadius: 2,
+              order: 3
+            });
+            
+            this.dueChartInstance.data.datasets.push({
+              label: 'Reviewing',
+              data: dueStats.longIntervalCounts,
+              backgroundColor: themeColors.barColor.includes('rgba') ? 
+                themeColors.barColor.replace(/[\d\.]+\)$/, '1)') : 
+                themeColors.barColor + '1A',
+              borderWidth: 0,
+              borderRadius: 2,
+              order: 2
+            });
+          } else {
+            this.dueChartInstance.data.datasets.push({
+              label: 'Cards Due',
+              data: dueStats.counts,
+              backgroundColor: themeColors.barColor,
+              borderWidth: 0,
+              borderRadius: 4,
+              order: 2
+            });
           }
+          
+          this.dueChartInstance.data.datasets.push({
+            label: 'Cumulative Cards',
+            data: newCumulativeCounts,
+            type: 'line',
+            borderColor: themeColors.unknownColor,
+            backgroundColor: themeColors.unknownColor,
+            borderWidth: 2,
+            pointStyle: false,
+            tension: 0.4,
+            fill: 'origin',
+            yAxisID: 'y1',
+            order: 1
+          });
           
           const finalTotal = newCumulativeCounts[newCumulativeCounts.length - 1];
           this.dueChartInstance.options.plugins.tooltip.callbacks.label = function(context) {
             const datasetLabel = context.dataset.label || '';
             const value = context.parsed.y;
             
-            if (datasetLabel === 'Cards Due' && value > 0) {
-              const percentage = finalTotal > 0 ? ((value / finalTotal) * 100).toFixed(1) : '0.0';
-              return `${datasetLabel}: ${value} (${percentage}%)`;
-            }
-            
-            if (datasetLabel === 'Cumulative Cards') {
-              const percentage = finalTotal > 0 ? ((value / finalTotal) * 100).toFixed(1) : '0.0';
-              return `${datasetLabel}: ${value} (${percentage}%)`;
-            }
-            
-            return `${datasetLabel}: ${value}`;
+            const percentage = finalTotal > 0 ? ((value / finalTotal) * 100).toFixed(1) : '0.0';
+            return `${datasetLabel}: ${value} (${percentage}%)`;
           };
-          
-          this.dueChartInstance.data.datasets[0].backgroundColor = themeColors.barColor;
           
           this.dueChartInstance.options.scales.y.ticks.color = themeColors.textColor;
           this.dueChartInstance.options.scales.y.title.color = themeColors.textColor;
@@ -1013,6 +1064,7 @@ function debounce(func, wait) {
           this.dueChartInstance.options.plugins.tooltip.backgroundColor = themeColors.backgroundElevation2;
           this.dueChartInstance.options.plugins.tooltip.bodyColor = themeColors.textColor;
           this.dueChartInstance.options.plugins.tooltip.titleColor = themeColors.textColor;
+          this.dueChartInstance.options.plugins.tooltip.footerColor = themeColors.textColor;
           
           this.dueChartInstance.options.plugins.legend.display = true;
           
@@ -1743,12 +1795,15 @@ function debounce(func, wait) {
         dueQueryParams.push(deckId);
       }
       
-      dueQuery += " GROUP BY due ORDER BY due";
+      dueQuery += " GROUP BY due, interval_range ORDER BY due";
       
       const dueResults = dbInstance.exec(dueQuery, dueQueryParams);
       
       const dateLabels = [];
-      const dateCounts = [];
+      const shortIntervalCounts = [];
+      const mediumIntervalCounts = [];
+      const longIntervalCounts = [];
+      const totalCounts = [];
       const tempDate = new Date(currentDate);
       
       for (let i = 0; i < actualForecastDays; i++) {
@@ -1761,41 +1816,49 @@ function debounce(func, wait) {
           label += ` (${currentDayNumber + i})`;
         }
         dateLabels.push(label);
-        dateCounts.push(0);
+        shortIntervalCounts.push(0);
+        mediumIntervalCounts.push(0);
+        longIntervalCounts.push(0);
+        totalCounts.push(0);
         tempDate.setDate(tempDate.getDate() + 1);
       }
       
       if (dueResults.length > 0 && dueResults[0].values.length > 0) {
-        logFn("Due cards query results:", dueResults[0]);
-        const dueCountsByDay = {};
+        logFn("Due cards query results with intervals:", dueResults[0]);
         
         dueResults[0].values.forEach((row) => {
-          const resultRow = {};
-          dueResults[0].columns.forEach((col, index) => {
-            resultRow[col] = row[index];
-          });
-          dueCountsByDay[resultRow.due] = resultRow.count;
+          const due = row[0];
+          const intervalRange = row[1];
+          const count = row[2];
+          
+          const dayIndex = due - currentDayNumber;
+          if (dayIndex >= 0 && dayIndex < actualForecastDays) {
+            if (intervalRange === 'short') {
+              shortIntervalCounts[dayIndex] += count;
+            } else if (intervalRange === 'medium') {
+              mediumIntervalCounts[dayIndex] += count;
+            } else if (intervalRange === 'long') {
+              longIntervalCounts[dayIndex] += count;
+            }
+            totalCounts[dayIndex] += count;
+          }
         });
         
-        for (let i = 0; i < actualForecastDays; i++) {
-          const dayNum = currentDayNumber + i;
-          if (dueCountsByDay[dayNum]) {
-            dateCounts[i] = dueCountsByDay[dayNum];
-          }
-        }
-        
         if (dueStatsPeriod === "dueStatsAll") {
-          let lastNonZeroIndex = dateCounts.length - 1;
-          while (lastNonZeroIndex >= 0 && dateCounts[lastNonZeroIndex] === 0) {
+          let lastNonZeroIndex = totalCounts.length - 1;
+          while (lastNonZeroIndex >= 0 && totalCounts[lastNonZeroIndex] === 0) {
             lastNonZeroIndex--;
           }
           
           const extraDays = 5;
-          lastNonZeroIndex = Math.min(lastNonZeroIndex + extraDays, dateCounts.length - 1);
+          lastNonZeroIndex = Math.min(lastNonZeroIndex + extraDays, totalCounts.length - 1);
           
           if (lastNonZeroIndex >= 0) {
             dateLabels.splice(lastNonZeroIndex + 1);
-            dateCounts.splice(lastNonZeroIndex + 1);
+            shortIntervalCounts.splice(lastNonZeroIndex + 1);
+            mediumIntervalCounts.splice(lastNonZeroIndex + 1);
+            longIntervalCounts.splice(lastNonZeroIndex + 1);
+            totalCounts.splice(lastNonZeroIndex + 1);
             logFn(`Trimmed data to ${lastNonZeroIndex + 1} days`);
           }
         }
@@ -1803,7 +1866,13 @@ function debounce(func, wait) {
         logFn("Due cards query returned no results.");
       }
       
-      return { labels: dateLabels, counts: dateCounts };
+      return { 
+        labels: dateLabels, 
+        counts: totalCounts,
+        shortIntervalCounts,
+        mediumIntervalCounts,
+        longIntervalCounts
+      };
     } catch (error) {
       logFn("Error fetching due stats:", error);
       return null;
@@ -2482,7 +2551,10 @@ function debounce(func, wait) {
               return;
             }
 
-            if (wordValues || (dueData && dueData.labels.length > 0) || (intervalData && intervalData.labels.length > 0)) {
+            if (wordValues || 
+              (dueData && dueData.labels && (dueData.counts?.length > 0 || dueData.shortIntervalCounts?.length > 0)) ||
+              (intervalData && intervalData.labels.length > 0)
+            ) {
               await displayCustomStats({
                 wordStats: wordValues,
                 dueStats: dueData,
@@ -2939,7 +3011,7 @@ function debounce(func, wait) {
       this.$emit('canvas-unmounted');
     },
     template: `
-      <div v-if="dueStats && dueStats.labels && dueStats.counts" v-bind:[componentHash]="true" class="MCS__due-stats-card">
+      <div v-if="dueStats && dueStats.labels && (dueStats.counts || dueStats.shortIntervalCounts)" v-bind:[componentHash]="true" class="MCS__due-stats-card">
         <div v-bind:[componentHash]="true" class="Statistic__card__header">
           <h3 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading3 -heading">Cards Due</h3>
           <div class="MCS__header-selector">
