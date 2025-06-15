@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Migaku Custom Stats
 // @namespace    http://tampermonkey.net/
-// @version      0.1.28
+// @version      0.1.29
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
 // @license      GPL-3.0
@@ -130,9 +130,8 @@ function debounce(func, wait) {
         SELECT
           due,
           CASE
-            WHEN c.interval < 7 THEN 'short'
-            WHEN c.interval < 20 THEN 'medium'
-            ELSE 'long'
+            WHEN c.interval < 20 THEN 'learning'
+            ELSE 'known'
           END as interval_range,
           COUNT(*) as count
         FROM card c
@@ -818,7 +817,7 @@ function debounce(func, wait) {
         return null;
       }
       
-      if (!dueStats || !dueStats.labels || (!dueStats.counts && !dueStats.shortIntervalCounts && !dueStats.mediumIntervalCounts && !dueStats.longIntervalCounts)) {
+      if (!dueStats || !dueStats.labels || (!dueStats.counts && !dueStats.learningCounts && !dueStats.knownCounts)) {
         logFn("Chart creation aborted: dueStats data is missing", dueStats);
         return null;
       }
@@ -839,38 +838,27 @@ function debounce(func, wait) {
       
       const datasets = [];
       
-      if (dueStats.shortIntervalCounts && dueStats.mediumIntervalCounts && dueStats.longIntervalCounts) {
+      if (dueStats.learningCounts && dueStats.knownCounts) {
         datasets.push({
-          label: 'New',
-          data: dueStats.shortIntervalCounts,
+          label: 'Learning',
+          data: dueStats.learningCounts,
           backgroundColor: themeColors.barColor.includes('rgba') ?
-            themeColors.barColor.replace(/[\d\.]+\)$/, '0.5)') :
-            themeColors.barColor + '99',
+            themeColors.barColor.replace(/[\d\.]+\)$/, '0.75)') :
+            themeColors.barColor + '40',
           borderWidth: 0,
-          borderRadius: 2,
+          borderRadius: 4,
           order: 4
         });
         
         datasets.push({
-          label: 'Learning',
-          data: dueStats.mediumIntervalCounts,
-          backgroundColor: themeColors.barColor.includes('rgba') ? 
-            themeColors.barColor.replace(/[\d\.]+\)$/, '0.75)') : 
-            themeColors.barColor + '40',
-          borderWidth: 0,
-          borderRadius: 2,
-          order: 3
-        });
-        
-        datasets.push({
-          label: 'Reviewing',
-          data: dueStats.longIntervalCounts,
+          label: 'Known',
+          data: dueStats.knownCounts,
           backgroundColor: themeColors.barColor.includes('rgba') ? 
             themeColors.barColor.replace(/[\d\.]+\)$/, '1)') : 
-            themeColors.barColor + '1A',
+            themeColors.barColor + '40',
           borderWidth: 0,
-          borderRadius: 2,
-          order: 2
+          borderRadius: 4,
+          order: 3
         });
       } else {
         datasets.push({
@@ -1020,38 +1008,27 @@ function debounce(func, wait) {
           
           this.dueChartInstance.data.datasets = [];
           
-          if (dueStats.shortIntervalCounts && dueStats.mediumIntervalCounts && dueStats.longIntervalCounts) {
-            this.dueChartInstance.data.datasets.push({
-              label: 'New',
-              data: dueStats.shortIntervalCounts,
-              backgroundColor: themeColors.barColor.includes('rgba') ? 
-                themeColors.barColor.replace(/[\d\.]+\)$/, '0.5)') : 
-                themeColors.barColor + '99',
-              borderWidth: 0,
-              borderRadius: 2,
-              order: 4
-            });
-            
+          if (dueStats.learningCounts && dueStats.knownCounts) {
             this.dueChartInstance.data.datasets.push({
               label: 'Learning',
-              data: dueStats.mediumIntervalCounts,
+              data: dueStats.learningCounts,
               backgroundColor: themeColors.barColor.includes('rgba') ? 
                 themeColors.barColor.replace(/[\d\.]+\)$/, '0.75)') : 
                 themeColors.barColor + '40',
               borderWidth: 0,
-              borderRadius: 2,
-              order: 3
+              borderRadius: 4,
+              order: 4
             });
             
             this.dueChartInstance.data.datasets.push({
-              label: 'Reviewing',
-              data: dueStats.longIntervalCounts,
+              label: 'Known',
+              data: dueStats.knownCounts,
               backgroundColor: themeColors.barColor.includes('rgba') ? 
                 themeColors.barColor.replace(/[\d\.]+\)$/, '1)') : 
                 themeColors.barColor + '1A',
               borderWidth: 0,
-              borderRadius: 2,
-              order: 2
+              borderRadius: 4,
+              order: 3
             });
           } else {
             this.dueChartInstance.data.datasets.push({
@@ -1835,9 +1812,8 @@ function debounce(func, wait) {
       const dueResults = dbInstance.exec(dueQuery, dueQueryParams);
       
       const dateLabels = [];
-      const shortIntervalCounts = [];
-      const mediumIntervalCounts = [];
-      const longIntervalCounts = [];
+      const learningCounts = [];
+      const knownCounts = [];
       const totalCounts = [];
       const tempDate = new Date(currentDate);
       
@@ -1851,9 +1827,8 @@ function debounce(func, wait) {
           label += ` (${currentDayNumber + i})`;
         }
         dateLabels.push(label);
-        shortIntervalCounts.push(0);
-        mediumIntervalCounts.push(0);
-        longIntervalCounts.push(0);
+        learningCounts.push(0);
+        knownCounts.push(0);
         totalCounts.push(0);
         tempDate.setDate(tempDate.getDate() + 1);
       }
@@ -1868,12 +1843,10 @@ function debounce(func, wait) {
           
           const dayIndex = due - currentDayNumber;
           if (dayIndex >= 0 && dayIndex < actualForecastDays) {
-            if (intervalRange === 'short') {
-              shortIntervalCounts[dayIndex] += count;
-            } else if (intervalRange === 'medium') {
-              mediumIntervalCounts[dayIndex] += count;
-            } else if (intervalRange === 'long') {
-              longIntervalCounts[dayIndex] += count;
+            if (intervalRange === 'learning') {
+              learningCounts[dayIndex] += count;
+            } else if (intervalRange === 'known') {
+              knownCounts[dayIndex] += count;
             }
             totalCounts[dayIndex] += count;
           }
@@ -1890,9 +1863,8 @@ function debounce(func, wait) {
           
           if (lastNonZeroIndex >= 0) {
             dateLabels.splice(lastNonZeroIndex + 1);
-            shortIntervalCounts.splice(lastNonZeroIndex + 1);
-            mediumIntervalCounts.splice(lastNonZeroIndex + 1);
-            longIntervalCounts.splice(lastNonZeroIndex + 1);
+            learningCounts.splice(lastNonZeroIndex + 1);
+            knownCounts.splice(lastNonZeroIndex + 1);
             totalCounts.splice(lastNonZeroIndex + 1);
             logFn(`Trimmed data to ${lastNonZeroIndex + 1} days`);
           }
@@ -1904,9 +1876,8 @@ function debounce(func, wait) {
       return { 
         labels: dateLabels, 
         counts: totalCounts,
-        shortIntervalCounts,
-        mediumIntervalCounts,
-        longIntervalCounts
+        learningCounts,
+        knownCounts
       };
     } catch (error) {
       logFn("Error fetching due stats:", error);
