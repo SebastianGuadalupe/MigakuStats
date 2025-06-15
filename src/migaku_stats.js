@@ -131,7 +131,7 @@ function debounce(func, wait) {
           due,
           CASE
             WHEN c.interval < 7 THEN 'short'
-            WHEN c.interval < 21 THEN 'medium'
+            WHEN c.interval < 20 THEN 'medium'
             ELSE 'long'
           END as interval_range,
           COUNT(*) as count
@@ -162,8 +162,7 @@ function debounce(func, wait) {
     STUDY_STATS_QUERY: `
       SELECT 
         COUNT(DISTINCT r.day) as days_studied,
-        COUNT(*) as total_reviews,
-        ROUND(COUNT(*) * 1.0 / COUNT(DISTINCT r.day), 1) as avg_reviews_per_day
+        COUNT(*) as total_reviews
       FROM review r
       JOIN card c ON r.cardId = c.id
       JOIN card_type ct ON c.cardTypeId = ct.id
@@ -179,7 +178,43 @@ function debounce(func, wait) {
         FROM review r
         JOIN card c ON r.cardId = c.id
         JOIN card_type ct ON c.cardTypeId = ct.id
-        WHERE ct.lang = ? AND r.day BETWEEN ? AND ? AND r.del = 0 AND r.type IN (1, 2);`
+        WHERE ct.lang = ? AND r.day BETWEEN ? AND ? AND r.del = 0 AND r.type IN (1, 2);`,
+    NEW_CARDS_QUERY: `
+        SELECT 
+          COUNT(DISTINCT r.cardId) as new_cards_reviewed
+        FROM review r
+        JOIN card c ON r.cardId = c.id
+        JOIN card_type ct ON c.cardTypeId = ct.id
+        WHERE ct.lang = ? AND r.day BETWEEN ? AND ? AND r.del = 0 AND r.type = 0;`,
+    CARDS_ADDED_QUERY: `
+        SELECT 
+          COUNT(*) as cards_added
+        FROM card c
+        JOIN card_type ct ON c.cardTypeId = ct.id
+        WHERE ct.lang = ? AND c.created >= ? AND c.created <= ? AND c.del = 0 AND c.lessonId = '';`,
+    CARDS_LEARNED_QUERY: `
+        SELECT 
+          COUNT(DISTINCT c.id) as cards_learned
+        FROM review r
+        JOIN card c ON r.cardId = c.id
+        JOIN card_type ct ON c.cardTypeId = ct.id
+        WHERE ct.lang = ? AND r.day BETWEEN ? AND ? AND r.del = 0 
+          AND c.interval >= 20 AND r.interval < 20 AND r.type = 2;`,
+    TOTAL_NEW_CARDS_QUERY: `
+        SELECT 
+          COUNT(DISTINCT r.cardId) as total_new_cards
+        FROM review r
+        JOIN card c ON r.cardId = c.id
+        JOIN card_type ct ON c.cardTypeId = ct.id
+        WHERE ct.lang = ? AND r.day BETWEEN ? AND ? AND c.del = 0 AND r.del = 0 AND r.type = 0;`,
+    CARDS_LEARNED_PER_DAY_QUERY: `
+        SELECT 
+          ROUND(COUNT(DISTINCT c.id) * 1.0 / NULLIF(COUNT(DISTINCT r.day), 0), 1) as cards_learned_per_day
+        FROM review r
+        JOIN card c ON r.cardId = c.id
+        JOIN card_type ct ON c.cardTypeId = ct.id
+        WHERE ct.lang = ? AND r.day BETWEEN ? AND ? AND r.del = 0 
+          AND c.interval >= 20 AND r.interval < 20 AND r.type = 2;`
   };
 
   // UI/Display texts
@@ -2160,6 +2195,7 @@ function debounce(func, wait) {
       
       let periodDays;
       let startDayNumber;
+      let startDayDate;
       let earliestReviewDayForAllTime = null;
 
       if (period === "All") {
@@ -2201,6 +2237,10 @@ function debounce(func, wait) {
         logFn(`Using fixed period: ${periodMonths} months (${periodDays} days), starting from day ${startDayNumber}`);
       }
       
+      startDayDate = startDate;
+      startDayDate.setDate(startDate.getDate() + startDayNumber);
+      startDayDate.setHours(0, 0, 0, 0);
+      
       logFn(`Fetching study stats from day ${startDayNumber} to ${currentDayNumber}`);
       
       let studyQuery = SQL_QUERIES.STUDY_STATS_QUERY;
@@ -2228,6 +2268,62 @@ function debounce(func, wait) {
       const studyResults = dbInstance.exec(studyQuery, studyQueryParams);
       const passRateResults = dbInstance.exec(passRateQuery, passRateQueryParams);
       
+      let newCardsQuery = SQL_QUERIES.NEW_CARDS_QUERY;
+      let newCardsQueryParams = [language, startDayNumber, currentDayNumber];
+      
+      let cardsAddedQuery = SQL_QUERIES.CARDS_ADDED_QUERY;
+      let cardsAddedQueryParams = [language, startDayDate.getTime(), new Date().getTime()];
+      
+      let cardsLearnedQuery = SQL_QUERIES.CARDS_LEARNED_QUERY;
+      let cardsLearnedQueryParams = [language, startDayNumber, currentDayNumber];
+      
+      if (deckId !== SETTINGS.DEFAULT_DECK_ID) {
+        newCardsQuery = newCardsQuery.replace(
+          "AND r.del = 0", 
+          "AND c.deckId = ? AND r.del = 0"
+        );
+        newCardsQueryParams.push(deckId);
+        
+        cardsAddedQuery = cardsAddedQuery.replace(
+          "AND c.del = 0", 
+          "AND c.deckId = ? AND c.del = 0"
+        );
+        cardsAddedQueryParams.push(deckId);
+        
+        cardsLearnedQuery = cardsLearnedQuery.replace(
+          "AND r.del = 0", 
+          "AND c.deckId = ? AND r.del = 0"
+        );
+        cardsLearnedQueryParams.push(deckId);
+      }
+      
+      const newCardsResults = dbInstance.exec(newCardsQuery, newCardsQueryParams);
+      const cardsAddedResults = dbInstance.exec(cardsAddedQuery, cardsAddedQueryParams);
+      const cardsLearnedResults = dbInstance.exec(cardsLearnedQuery, cardsLearnedQueryParams);
+      
+      let totalNewCardsQuery = SQL_QUERIES.TOTAL_NEW_CARDS_QUERY;
+      let totalNewCardsQueryParams = [language, startDayNumber, currentDayNumber];
+
+      let cardsLearnedPerDayQuery = SQL_QUERIES.CARDS_LEARNED_PER_DAY_QUERY;
+      let cardsLearnedPerDayQueryParams = [language, startDayNumber, currentDayNumber];
+      
+      if (deckId !== SETTINGS.DEFAULT_DECK_ID) {
+        totalNewCardsQuery = totalNewCardsQuery.replace(
+          "AND r.del = 0", 
+          "AND c.deckId = ? AND r.del = 0"
+        );
+        totalNewCardsQueryParams.push(deckId);
+        
+        cardsLearnedPerDayQuery = cardsLearnedPerDayQuery.replace(
+          "AND c.interval >= 20", 
+          "AND c.deckId = ? AND c.interval >= 20"
+        );
+        cardsLearnedPerDayQueryParams.push(deckId);
+      }
+      
+      const totalNewCardsResults = dbInstance.exec(totalNewCardsQuery, totalNewCardsQueryParams);
+      const cardsLearnedPerDayResults = dbInstance.exec(cardsLearnedPerDayQuery, cardsLearnedPerDayQueryParams);
+      
       if (studyResults.length > 0 && studyResults[0].values.length > 0) {
         logFn("Study stats query results:", studyResults[0]);
         
@@ -2242,7 +2338,7 @@ function debounce(func, wait) {
            denominator = Math.max(1, periodDays);
         }
 
-        logFn(`Days studied: ${days_studied}, Total reviews: ${total_reviews}, Avg reviews per day: ${avg_reviews_per_day}, Period days (calculated): ${periodDays}, Denominator for %: ${denominator}`);
+        logFn(`Days studied: ${days_studied}, Total reviews: ${total_reviews}, Period days (calculated): ${periodDays}, Denominator for %: ${denominator}`);
         
         const daysStudiedPercent = Math.round((days_studied / denominator) * 100);
         
@@ -2259,13 +2355,64 @@ function debounce(func, wait) {
           logFn(`Pass rate calculation: ${successful_reviews} successful of ${total_answered_reviews} total = ${pass_rate}%`);
         }
         
+        let new_cards_per_day = 0;
+        let total_cards_added = 0;
+        let total_cards_learned = 0;
+        
+        if (newCardsResults.length > 0 && newCardsResults[0].values.length > 0) {
+          const new_cards_reviewed = newCardsResults[0].values[0][0] || 0;
+          new_cards_per_day = Math.round((new_cards_reviewed / Math.max(1, periodDays)) * 10) / 10;
+          logFn(`New cards calculation: ${new_cards_reviewed} cards over ${periodDays} days = ${new_cards_per_day} per day`);
+        }
+        
+        if (cardsAddedResults.length > 0 && cardsAddedResults[0].values.length > 0) {
+          total_cards_added = cardsAddedResults[0].values[0][0] || 0;
+          logFn(`Cards added: ${total_cards_added}`);
+        }
+        
+        if (cardsLearnedResults.length > 0 && cardsLearnedResults[0].values.length > 0) {
+          total_cards_learned = cardsLearnedResults[0].values[0][0] || 0;
+          logFn(`Cards learned: ${total_cards_learned}`);
+        }
+        
+        let total_new_cards = 0;
+        let cards_added_per_day = 0;
+        let cards_learned_per_day = 0;
+        let avg_reviews_per_calendar_day = 0;
+
+        if (totalNewCardsResults.length > 0 && totalNewCardsResults[0].values.length > 0) {
+          total_new_cards = totalNewCardsResults[0].values[0][0] || 0;
+          logFn(`Total new cards reviewed: ${total_new_cards}`);
+        }
+        
+        if (total_cards_added > 0) {
+          cards_added_per_day = Math.round((total_cards_added / Math.max(1, periodDays)) * 10) / 10;
+          logFn(`Cards added per day: ${cards_added_per_day} (${total_cards_added} total over ${periodDays} days)`);
+        }
+        
+        if (cardsLearnedPerDayResults.length > 0 && cardsLearnedPerDayResults[0].values.length > 0) {
+          cards_learned_per_day = cardsLearnedPerDayResults[0].values[0][0] || 0;
+          logFn(`Cards learned per day: ${cards_learned_per_day}`);
+        }
+        
+        if (total_reviews > 0) {
+          avg_reviews_per_calendar_day = Math.round((total_reviews / Math.max(1, periodDays)) * 10) / 10;
+          logFn(`Average reviews per calendar day: ${avg_reviews_per_calendar_day} (${total_reviews} total over ${periodDays} days)`);
+        }
+        
         return {
           days_studied,
           days_studied_percent: daysStudiedPercent,
           total_reviews,
-          avg_reviews_per_day,
+          avg_reviews_per_calendar_day,
           period_days: periodDays,
-          pass_rate
+          pass_rate,
+          new_cards_per_day,
+          total_new_cards,
+          total_cards_added,
+          cards_added_per_day,
+          total_cards_learned,
+          cards_learned_per_day,
         };
       } else {
         logFn("Study stats query returned no results");
@@ -2273,9 +2420,15 @@ function debounce(func, wait) {
           days_studied: 0,
           days_studied_percent: 0,
           total_reviews: 0,
-          avg_reviews_per_day: 0,
+          avg_reviews_per_calendar_day: 0,
           period_days: periodDays,
-          pass_rate: 0
+          pass_rate: 0,
+          new_cards_per_day: 0,
+          total_new_cards: 0,
+          total_cards_added: 0,
+          cards_added_per_day: 0,
+          total_cards_learned: 0,
+          cards_learned_per_day: 0,
         };
       }
     } catch (error) {
@@ -3251,22 +3404,55 @@ function debounce(func, wait) {
             </dropdown-menu>
           </div>
         </div>
-        <div v-bind:[componentHash]="true" class="MCS__study-stats">
-          <div v-bind:[componentHash]="true" class="MCS__stat-box">
-            <div v-bind:[componentHash]="true" class="MCS__stat-value">{{ studyStats.days_studied_percent }}%</div>
-            <div v-bind:[componentHash]="true" class="MCS__stat-label">of days studied</div>
+        <div v-bind:[componentHash]="true">
+          <h4 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading4 -heading">Percentages</h4>
+          <div v-bind:[componentHash]="true" class="MCS__study-stats">
+            <div v-bind:[componentHash]="true" class="MCS__stat-box">
+              <div v-bind:[componentHash]="true" class="MCS__stat-value">{{ studyStats.days_studied_percent }}%</div>
+              <div v-bind:[componentHash]="true" class="MCS__stat-label">of days studied</div>
+            </div>
+            <div v-bind:[componentHash]="true" class="MCS__stat-box">
+              <div v-bind:[componentHash]="true" class="MCS__stat-value">{{ studyStats.pass_rate }}%</div>
+              <div v-bind:[componentHash]="true" class="MCS__stat-label">Pass rate</div>
+            </div>
           </div>
-          <div v-bind:[componentHash]="true" class="MCS__stat-box">
-            <div v-bind:[componentHash]="true" class="MCS__stat-value">{{ studyStats.pass_rate }}%</div>
-            <div v-bind:[componentHash]="true" class="MCS__stat-label">Pass rate</div>
+          <h4 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading4 -heading">Totals</h4>
+          <div v-bind:[componentHash]="true" class="MCS__study-stats">
+            <div v-bind:[componentHash]="true" class="MCS__stat-box">
+              <div v-bind:[componentHash]="true" class="MCS__stat-value">{{ studyStats.total_reviews.toLocaleString() }}</div>
+              <div v-bind:[componentHash]="true" class="MCS__stat-label">Total reviews</div>
+            </div>
+            <div v-bind:[componentHash]="true" class="MCS__stat-box">
+              <div v-bind:[componentHash]="true" class="MCS__stat-value">{{ studyStats.total_cards_added.toLocaleString() }}</div>
+              <div v-bind:[componentHash]="true" class="MCS__stat-label">Total cards added</div>
+            </div>
+            <div v-bind:[componentHash]="true" class="MCS__stat-box">
+              <div v-bind:[componentHash]="true" class="MCS__stat-value">{{ studyStats.total_new_cards.toLocaleString() }}</div>
+              <div v-bind:[componentHash]="true" class="MCS__stat-label">Total new cards reviewed</div>
+            </div>
+            <div v-bind:[componentHash]="true" class="MCS__stat-box">
+              <div v-bind:[componentHash]="true" class="MCS__stat-value">{{ studyStats.total_cards_learned.toLocaleString() }}</div>
+              <div v-bind:[componentHash]="true" class="MCS__stat-label">Total cards learned</div>
+            </div>
           </div>
-          <div v-bind:[componentHash]="true" class="MCS__stat-box">
-            <div v-bind:[componentHash]="true" class="MCS__stat-value">{{ studyStats.total_reviews.toLocaleString() }}</div>
-            <div v-bind:[componentHash]="true" class="MCS__stat-label">Total reviews</div>
-          </div>
-          <div v-bind:[componentHash]="true" class="MCS__stat-box">
-            <div v-bind:[componentHash]="true" class="MCS__stat-value">{{ studyStats.avg_reviews_per_day }}</div>
-            <div v-bind:[componentHash]="true" class="MCS__stat-label">Avg. reviews per study day</div>
+          <h4 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading4 -heading">Averages</h4>
+          <div v-bind:[componentHash]="true" class="MCS__study-stats">
+            <div v-bind:[componentHash]="true" class="MCS__stat-box">
+              <div v-bind:[componentHash]="true" class="MCS__stat-value">{{ studyStats.avg_reviews_per_calendar_day }}</div>
+              <div v-bind:[componentHash]="true" class="MCS__stat-label">Avg. reviews per day</div>
+            </div>
+            <div v-bind:[componentHash]="true" class="MCS__stat-box">
+              <div v-bind:[componentHash]="true" class="MCS__stat-value">{{ studyStats.cards_added_per_day }}</div>
+              <div v-bind:[componentHash]="true" class="MCS__stat-label">Avg. cards added per day</div>
+            </div>
+            <div v-bind:[componentHash]="true" class="MCS__stat-box">
+              <div v-bind:[componentHash]="true" class="MCS__stat-value">{{ studyStats.new_cards_per_day }}</div>
+              <div v-bind:[componentHash]="true" class="MCS__stat-label">Avg. new cards per day</div>
+            </div>
+            <div v-bind:[componentHash]="true" class="MCS__stat-box">
+              <div v-bind:[componentHash]="true" class="MCS__stat-value">{{ studyStats.cards_learned_per_day }}</div>
+              <div v-bind:[componentHash]="true" class="MCS__stat-label">Avg. cards learned per day</div>
+            </div>
           </div>
         </div>
       </div>
