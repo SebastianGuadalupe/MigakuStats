@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Migaku Custom Stats
 // @namespace    http://tampermonkey.net/
-// @version      0.1.27
+// @version      0.1.28
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
 // @license      GPL-3.0
@@ -3015,7 +3015,7 @@ function debounce(func, wait) {
     template: `
     <div v-bind:[componentHash]="true" class="MCS__deck-selector UiFormField SettingsGeneral__optionLeft">
       <div class="UiFormField__labelContainer">
-        <label v-bind:[componentHash]="true" class="UiTypo UiTypo__body UiFormField__labelContainer__typo">Deck</label>
+        <h4 v-bind:[componentHash]="true" class="UiTypo UiTypo__heading4 -heading">Deck</h4>
       </div>
       <div class="UiFormField__controlContainer">
         <dropdown-menu
