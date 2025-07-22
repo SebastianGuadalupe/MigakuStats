@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Migaku Custom Stats
 // @namespace    http://tampermonkey.net/
-// @version      0.1.29
+// @version      0.1.30
 // @description  Custom stats for Migaku Memory.
 // @author       sguadalupe
 // @license      GPL-3.0
@@ -2320,7 +2320,7 @@ function debounce(func, wait) {
           const total_answered_reviews = successful_reviews + failed_reviews;
           
           if (total_answered_reviews > 0) {
-            pass_rate = Math.round((successful_reviews / total_answered_reviews) * 100);
+            pass_rate = Math.round((successful_reviews - failed_reviews) / total_answered_reviews * 100);
           }
           
           logFn(`Pass rate calculation: ${successful_reviews} successful of ${total_answered_reviews} total = ${pass_rate}%`);
