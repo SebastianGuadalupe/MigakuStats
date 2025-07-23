@@ -1986,7 +1986,7 @@ function debounce(func, wait) {
         const periodMonths = parseInt(period, 10) || 1;
         const periodStartDate = new Date(currentDate);
         periodStartDate.setMonth(currentDate.getMonth() - periodMonths);
-        periodDays = Math.round((currentDate - periodStartDate) / (1000 * 60 * 60 * 24)) + 1;
+        periodDays = currentDate - periodStartDate) / (1000 * 60 * 60 * 24)) + 1;
       }
       
       const periodDaysAgoDayNumber = currentDayNumber - periodDays;
@@ -2203,7 +2203,7 @@ function debounce(func, wait) {
         today.setDate(today.getDate() + currentDayNumber);
         const periodStartDate = new Date(today);
         periodStartDate.setMonth(today.getMonth() - periodMonths);
-        periodDays = Math.round((today - periodStartDate) / (1000 * 60 * 60 * 24)) + 1;
+        periodDays = today - periodStartDate) / (1000 * 60 * 60 * 24)) + 1;
         startDayNumber = currentDayNumber - periodDays + 1;
         logFn(`Using fixed period: ${periodMonths} months (${periodDays} days), starting from day ${startDayNumber}`);
       }
@@ -2320,7 +2320,7 @@ function debounce(func, wait) {
           const total_answered_reviews = successful_reviews + failed_reviews;
           
           if (total_answered_reviews > 0) {
-            pass_rate = Math.round((successful_reviews - failed_reviews) / total_answered_reviews * 100);
+            pass_rate = Math.round((successful_reviews - failed_reviews) / successful_reviews * 100);
           }
           
           logFn(`Pass rate calculation: ${successful_reviews} successful of ${total_answered_reviews} total = ${pass_rate}%`);
