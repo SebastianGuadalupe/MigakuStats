@@ -2320,7 +2320,7 @@ function debounce(func, wait) {
           const total_answered_reviews = successful_reviews + failed_reviews;
           
           if (total_answered_reviews > 0) {
-            pass_rate = Math.round((successful_reviews - failed_reviews) / total_answered_reviews * 100);
+            pass_rate = Math.round((successful_reviews - failed_reviews) / successful_reviews * 100);
           }
           
           logFn(`Pass rate calculation: ${successful_reviews} successful of ${total_answered_reviews} total = ${pass_rate}%`);
