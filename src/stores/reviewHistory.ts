@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
-import { fetchReviewHistory, ReviewHistoryResult } from '../utils/database';
+import { fetchReviewHistory, ReviewHistoryResult, reloadDatabase } from '../utils/database';
 const STORAGE_KEY = 'migaku-reviewHistory';
 const SETTINGS_KEY = 'migaku-reviewHistory-settings';
 
@@ -66,6 +66,14 @@ export const useReviewHistoryStore = defineStore('reviewHistory', () => {
     }
   }
 
+  async function refetch(lang: string, deckId: string) {
+    isLoading.value = true;
+    error.value = '';
+    reviewHistory.value = null;
+    await reloadDatabase();
+    await fetchReviewHistoryIfNeeded(lang, deckId, periodId.value, grouping.value);
+  }
+
   function setReviewHistory(stats: ReviewHistoryResult|null) { reviewHistory.value = stats; }
   function clearReviewHistory() { reviewHistory.value = null; }
 
@@ -78,6 +86,7 @@ export const useReviewHistoryStore = defineStore('reviewHistory', () => {
     setReviewHistory,
     clearReviewHistory,
     fetchReviewHistoryIfNeeded,
+    refetch,
     loadFromStorage,
     setGroupingAndPeriod,
     loadSettingsFromStorage,

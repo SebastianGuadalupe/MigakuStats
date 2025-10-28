@@ -45,11 +45,14 @@ function checkOverflow() {
   isOverflowing.value = isOverf;
 }
 
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener("resize", checkOverflow);
   nextTick(() => {
     checkOverflow();
   });
+  if (language.value) {
+    await wordStatsStore.refetch(language.value, selectedDeckId.value);
+  }
 });
 onBeforeUnmount(() => {
   window.removeEventListener("resize", checkOverflow);
@@ -162,7 +165,7 @@ watch([language, selectedDeckId], async ([lang, deckId], _prev, onCleanup) => {
   onCleanup(() => cancelled = true);
   await fetchPromise;
   if (cancelled) return;
-}, { immediate: true });
+});
 </script>
 
 <template>
