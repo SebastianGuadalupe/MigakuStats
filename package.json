@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@types/pako": "^2.0.4",
+    "grid-layout-plus": "^1.1.1",
     "pako": "^2.1.0",
     "pinia": "^3.0.3",
     "sql.js": "^1.13.0",

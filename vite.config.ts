@@ -13,6 +13,7 @@ export default defineConfig({
         namespace: 'npm/vite-plugin-monkey',
         match: ['https://study.migaku.com/*'],
       },
+      clientAlias: 'monkey',
       build: {
         externalGlobals: {
           vue: cdn.jsdelivr('Vue', 'dist/vue.global.prod.js'),

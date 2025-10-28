@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, watch } from "vue";
+import { computed, watch, ref, onMounted, onBeforeUnmount, nextTick } from "vue";
 import { useAppStore } from "../stores/app";
 import { useWordStatsStore } from "../stores/wordStats";
 import { Doughnut } from "vue-chartjs";
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from "chart.js";
 import { THEME_CONFIGS } from "../utils/theme";
 import { CHART_CONFIG } from "../utils/constants";
+import { useCardsStore } from "../stores/cards";
 
 ChartJS.register(ArcElement, Tooltip, Legend);
 
@@ -16,6 +17,7 @@ const theme = computed(() => appStore.theme || "dark");
 const themeColors = computed(() => THEME_CONFIGS[theme.value.toUpperCase() as keyof typeof THEME_CONFIGS]);
 const language = computed(() => appStore.language);
 const selectedDeckId = computed(() => appStore.selectedDeckId);
+const cardsStore = useCardsStore();
 
 interface WordStats {
   known_count: number;
@@ -27,6 +29,41 @@ interface WordStats {
 const error = computed(() => wordStatsStore.error);
 const isLoading = computed(() => wordStatsStore.isLoading);
 const wordStats = computed<WordStats|null>(() => wordStatsStore.wordStats);
+
+const wordcountContainer = ref<HTMLElement | null>(null);
+const isOverflowing = ref(false);
+
+function checkOverflow() {
+  if (!wordcountContainer.value) return;
+  let isOverf = false;
+  const wordCountCard = cardsStore.cards.find(c => c.item.i === 'WordCount');
+  if (wordCountCard && wordCountCard.item.w <= 5 && wordCountCard.item.h <= 6) {
+    isOverf = true;
+  } else if (wordCountCard && wordCountCard.item.h <= 5 && wordCountCard.item.w <= 5) {
+    isOverf = true;
+  }
+  isOverflowing.value = isOverf;
+}
+
+onMounted(() => {
+  window.addEventListener("resize", checkOverflow);
+  nextTick(() => {
+    checkOverflow();
+  });
+});
+onBeforeUnmount(() => {
+  window.removeEventListener("resize", checkOverflow);
+});
+
+watch([
+  wordStats,
+  isLoading,
+  error,
+  () => cardsStore
+], async () => {
+  await nextTick();
+  checkOverflow();
+}, { deep: true });
 
 const chartData = computed(() => {
   if (!wordStats.value) {
@@ -127,16 +164,16 @@ watch([language, selectedDeckId], async ([lang, deckId], _prev, onCleanup) => {
 </script>
 
 <template>
-  <h2
-    :[componentHash]="true"
-    class="UiTypo UiTypo__heading2 -heading Statistic__title"
-  >
-    Word Status
-  </h2>
-  <div :[componentHash]="true" class="UiCard -lesson Statistic__card">
+  <div :[componentHash]="true" class="UiCard -lesson Statistic__card" ref="wordcountContainer">
+    <h3
+      :[componentHash]="true"
+      class="UiTypo UiTypo__heading3 -heading Statistic__title"
+    >
+      Word Status
+    </h3>
     <div v-if="wordStats && !isLoading && !error" v-bind:[componentHash]="true">
       <div v-bind:[componentHash]="true" class="MCS__wordcount">
-        <div v-bind:[componentHash]="true" class="MCS__wordcount__details">
+        <div v-bind:[componentHash]="true" class="MCS__wordcount__details" v-show="!isOverflowing">
           <div v-bind:[componentHash]="true">
             <div v-bind:[componentHash]="true">
               <span class="UiTypo UiTypo__caption">Known:</span>
@@ -172,7 +209,7 @@ watch([language, selectedDeckId], async ([lang, deckId], _prev, onCleanup) => {
     <div v-else-if="isLoading" v-bind:[componentHash]="true">
       <div v-bind:[componentHash]="true" class="MCS__wordcount">
         <!-- Left side: Label + Number pairs -->
-        <div v-bind:[componentHash]="true" class="MCS__wordcount__details">
+        <div v-bind:[componentHash]="true" class="MCS__wordcount__details" v-show="!isOverflowing">
           <div v-bind:[componentHash]="true">
             <div v-bind:[componentHash]="true" class="skeleton-row">
               <span class="UiSkeleton skeleton-label"></span>
