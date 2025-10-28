@@ -10,8 +10,15 @@ export default defineConfig({
       entry: 'src/main.ts',
       userscript: {
         icon: 'https://study.migaku.com/favicon.ico',
-        namespace: 'npm/vite-plugin-monkey',
+        namespace: 'http://tampermonkey.net/',
         match: ['https://study.migaku.com/*'],
+        version: '0.2.0',
+        description: 'More stats for Migaku Memory.',
+        author: 'sguadalupe',
+        license: 'GPL-3.0',
+        'run-at': 'document-idle',
+        supportURL: 'https://github.com/SebastianGuadalupe/MigakuStats/issues',
+        homepageURL: 'https://github.com/SebastianGuadalupe/MigakuStats',
       },
       clientAlias: 'monkey',
       build: {
