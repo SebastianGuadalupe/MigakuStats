@@ -48,6 +48,7 @@ async function mountApp() {
     const children = statsContainer.children;
     const newDiv = document.createElement("div");
     newDiv.classList.add("MCS__stats-container");
+    newDiv.id = "original-stats-card-container";
     Array.from(children).forEach(child => {
       newDiv.appendChild(child);
     });

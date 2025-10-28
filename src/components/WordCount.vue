@@ -1,16 +1,16 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, watch } from "vue";
 import { useAppStore } from "../stores/app";
+import { useWordStatsStore } from "../stores/wordStats";
 import { Doughnut } from "vue-chartjs";
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from "chart.js";
 import { THEME_CONFIGS } from "../utils/theme";
 import { CHART_CONFIG } from "../utils/constants";
-import { fetchWordStats } from "../utils/database";
-import { logger } from "../utils/logger";
 
 ChartJS.register(ArcElement, Tooltip, Legend);
 
 const appStore = useAppStore();
+const wordStatsStore = useWordStatsStore();
 const componentHash = computed(() => appStore.componentHash || "");
 const theme = computed(() => appStore.theme || "dark");
 const themeColors = computed(() => THEME_CONFIGS[theme.value.toUpperCase() as keyof typeof THEME_CONFIGS]);
@@ -24,9 +24,9 @@ interface WordStats {
   ignored_count: number;
 }
 
-const wordStats = ref<WordStats | null>(null);
-const isLoading = ref(false);
-const error = ref<string | null>(null);
+const error = computed(() => wordStatsStore.error);
+const isLoading = computed(() => wordStatsStore.isLoading);
+const wordStats = computed<WordStats|null>(() => wordStatsStore.wordStats);
 
 const chartData = computed(() => {
   if (!wordStats.value) {
@@ -35,7 +35,6 @@ const chartData = computed(() => {
       datasets: [],
     };
   }
-
   return {
     labels: ["Known", "Learning", "Unknown", "Ignored"],
     datasets: [
@@ -117,41 +116,14 @@ const chartOptions = {
   },
 };
 
-const fetchData = async () => {
-  logger.debug("Fetching word stats");
-  logger.debug("Language:", language.value);
-  logger.debug("Selected deck ID:", selectedDeckId.value);
-  if (!language.value) {
-    logger.warn("No language selected, skipping word stats fetch");
-    return;
-  }
-
-  isLoading.value = true;
-  error.value = null;
-
-  try {
-    logger.debug(`Fetching word stats for language: ${language.value}, deck: ${selectedDeckId.value}`);
-    const stats = await fetchWordStats(language.value, selectedDeckId.value || undefined);
-    logger.debug("Word stats:", stats);
-    
-    if (stats) {
-      wordStats.value = stats;
-      logger.debug("Word stats fetched successfully:", stats);
-    } else {
-      error.value = "No data found";
-      logger.warn("No word stats found");
-    }
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : "Unknown error";
-    logger.error("Failed to fetch word stats:", err);
-  } finally {
-    isLoading.value = false;
-  }
-};
-watch([language, selectedDeckId], () => {
-  logger.debug("Language or deck changed, refetching word stats");
-  fetchData();
-});
+watch([language, selectedDeckId], async ([lang, deckId], _prev, onCleanup) => {
+  if (!lang) return;
+  const fetchPromise = wordStatsStore.fetchWordStatsIfNeeded(lang, deckId);
+  let cancelled = false;
+  onCleanup(() => cancelled = true);
+  await fetchPromise;
+  if (cancelled) return;
+}, { immediate: true });
 </script>
 
 <template>
