@@ -29,9 +29,45 @@ async function moveNativeNode() {
 
   const heatmapCard = await waitForElement(SELECTORS.HEATMAP);
   if (heatmapCard && (heatmapCard instanceof HTMLElement)) {
-    heatmapCard.style.height = "calc(100% - 250px)";
+    heatmapCard.style.height = "calc(100% - 256px)";
     heatmapCard.style.overflowY = "scroll";
     heatmapCard.scrollTop = heatmapCard.scrollHeight;
+  }
+
+  const averageReviewsPerDayValue = nativeNode?.querySelector('#average-reviews-per-day-value')?.textContent || nativeNode?.querySelector('.UiTypo.UiTypo__heading3.-heading')?.textContent;
+  const componentHash = nativeNode?.querySelector('.UiTypo.UiTypo__heading3.-heading')?.attributes[0].nodeName;
+  const footer = nativeNode?.querySelector('.Statistic__card__footer');
+  if (averageReviewsPerDayValue && footer && componentHash) {
+    nativeNode?.querySelector('#average-reviews-per-day')?.remove();
+    nativeNode?.querySelector('.Statistic__card__header')?.remove();
+    nativeNode?.querySelector('#review-heatmap-header')?.remove();
+
+    const newFooterElement = document.createElement('div');
+    newFooterElement.id = 'average-reviews-per-day';
+    newFooterElement.setAttribute(componentHash, '');
+
+    const firstSpan = document.createElement('span');
+    firstSpan.textContent = 'Average reviews per day: ';
+    firstSpan.setAttribute(componentHash, '');
+    firstSpan.classList.add('UiTypo', 'UiTypo__caption', '-inline');
+    newFooterElement.appendChild(firstSpan);
+
+    const secondSpan = document.createElement('span');
+    secondSpan.id = 'average-reviews-per-day-value';
+    secondSpan.textContent = averageReviewsPerDayValue || '';
+    secondSpan.setAttribute(componentHash, '');
+    secondSpan.classList.add('UiTypo', 'UiTypo__heading4', '-heading', '-inline');
+    newFooterElement.appendChild(secondSpan);
+
+    footer.insertBefore(newFooterElement, footer.firstChild);
+
+    const newHeaderElement = document.createElement('h3');
+    newHeaderElement.textContent = 'Review Heatmap';
+    newHeaderElement.setAttribute(componentHash, '');
+    newHeaderElement.classList.add('UiTypo', 'UiTypo__heading3', '-heading', 'Statistic__title');
+    newHeaderElement.id = 'review-heatmap-header';
+    const card = nativeNode?.querySelector('.UiCard.-lesson.Statistic__card');
+    card?.insertBefore(newHeaderElement, card?.firstChild);
   }
 }
 
