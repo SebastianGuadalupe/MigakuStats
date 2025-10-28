@@ -1,7 +1,5 @@
 import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
 import pako from 'pako';
-// @ts-ignore: sql.js/dist/sql-wasm.wasm?url is a valid URL
-import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 import { logger } from './logger';
 import { DB_CONFIG, APP_SETTINGS, CHART_CONFIG } from './constants';
 import { WORD_QUERY, WORD_QUERY_WITH_DECK, DUE_QUERY, CURRENT_DATE_QUERY, REVIEW_HISTORY_QUERY } from './sql-queries';
@@ -69,7 +67,7 @@ async function initializeSqlEngine(): Promise<SqlJsStatic | null> {
       locateFile: (file: string) => {
         logger.debug(`Locating file: ${file}`);
         if (file.endsWith('.wasm')) {
-          return wasmUrl;
+          return 'https://cdn.jsdelivr.net/npm/sql.js@1.13.0/dist/sql-wasm.wasm';
         }
         return file;
       },
