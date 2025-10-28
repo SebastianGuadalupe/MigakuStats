@@ -8,6 +8,7 @@ import { useAppStore } from "./stores/app";
 import { useCardsStore } from "./stores/cards";
 import WordCount from "./components/WordCount.vue";
 import NativeStats from "./components/NativeStats.vue";
+import CardsDue from "./components/CardsDue.vue";
 
 const appStore = useAppStore();
 const cardsStore = useCardsStore();
@@ -19,7 +20,8 @@ const layout = ref<Layout>(useCardsStore().layout);
 
 const cardComponents: Record<string, any> = {
   NativeStats,
-  WordCount
+  WordCount,
+  CardsDue
 };
 
 
