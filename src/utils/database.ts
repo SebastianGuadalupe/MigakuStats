@@ -2,8 +2,8 @@ import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
 import pako from 'pako';
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 import { logger } from './logger';
-import { DB_CONFIG, APP_SETTINGS } from './constants';
-import { WORD_QUERY, WORD_QUERY_WITH_DECK, DUE_QUERY, CURRENT_DATE_QUERY } from './sql-queries';
+import { DB_CONFIG, APP_SETTINGS, CHART_CONFIG } from './constants';
+import { WORD_QUERY, WORD_QUERY_WITH_DECK, DUE_QUERY, CURRENT_DATE_QUERY, REVIEW_HISTORY_QUERY } from './sql-queries';
 
 interface DatabaseState {
   sql: SqlJsStatic | null;
@@ -299,6 +299,177 @@ export async function fetchDueStats(
     return { labels, counts, knownCounts, learningCounts };
   } catch (error) {
     logger.error('Error fetching due stats:', error);
+    return null;
+  }
+}
+
+export interface ReviewHistoryResult {
+  labels: string[];
+  counts: number[][];
+  typeLabels: string[];
+}
+
+export async function fetchReviewHistory(
+  language: string,
+  deckId: string = APP_SETTINGS.DEFAULT_DECK_ID,
+  periodId: string = 'reviewHistory1',
+  grouping: 'Days' | 'Weeks' | 'Months' = 'Days'
+): Promise<ReviewHistoryResult | null> {
+  try {
+    const db = await loadDatabase();
+    if (!db) {
+      logger.error('Failed to load database');
+      return null;
+    }
+
+    let currentDate = new Date();
+    currentDate.setHours(0, 0, 0, 0);
+    let currentDayNumber = Math.floor(
+      (currentDate.getTime() - new Date(
+        CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY
+      ).getTime()) / (1000 * 60 * 60 * 24)
+    );
+
+    const period = periodId.replace('reviewHistory', '');
+    let periodDays: number;
+    if (period === 'All') {
+      periodDays = currentDayNumber;
+    } else {
+      const periodMonths = parseInt(period, 10) || 1;
+      const periodStartDate = new Date(currentDate);
+      periodStartDate.setMonth(currentDate.getMonth() - periodMonths);
+      periodDays = Math.round((currentDate.getTime() - periodStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    }
+    const periodDaysAgoDayNumber = currentDayNumber - periodDays;
+
+    let reviewQuery = REVIEW_HISTORY_QUERY;
+    let reviewQueryParams: (string | number)[] = [language, periodDaysAgoDayNumber];
+    if (deckId !== APP_SETTINGS.DEFAULT_DECK_ID) {
+      reviewQuery = reviewQuery.replace(
+        'WHERE ct.lang = ? AND r.day >= ? AND r.del = 0',
+        'WHERE ct.lang = ? AND r.day >= ? AND r.del = 0 AND c.deckId = ?'
+      );
+      reviewQueryParams.push(deckId);
+    }
+    const reviewResults = db.exec(reviewQuery, reviewQueryParams);
+
+    const dateLabels: string[] = [];
+    const type0Counts: number[] = [];
+    const type1Counts: number[] = [];
+    const type2Counts: number[] = [];
+    const dayMap = new Map<number, { index: number }>();
+    const aggregateMap = new Map<string, { index: number, data: [number, number, number] }>();
+
+    let actualPeriodDays = periodDays;
+    if (period === 'All' && reviewResults.length > 0 && reviewResults[0].values.length > 0) {
+      let earliestDayWithReviews = currentDayNumber;
+      reviewResults[0].values.forEach(row => {
+        const dayNumber = Number(row[0]) ?? 0;
+        earliestDayWithReviews = Math.min(earliestDayWithReviews, dayNumber);
+      });
+      const daysWithData = currentDayNumber - earliestDayWithReviews + 1;
+      actualPeriodDays = Math.min(periodDays, daysWithData);
+    }
+
+    let currentGroupKey: string | number | null = null;
+    let groupIndex = -1;
+    const startDate = new Date(CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY);
+    for (let i = 0; i < actualPeriodDays; i++) {
+      const dayNumber = currentDayNumber - (actualPeriodDays - 1 - i);
+      const date = new Date(startDate);
+      date.setDate(date.getDate() + dayNumber);
+      date.setHours(0, 0, 0, 0);
+      let displayDate;
+      let groupKey: string | number;
+      if (grouping === 'Weeks') {
+        const dayOfWeek = (date.getDay() + 6) % 7;
+        const weekStartDate = new Date(date);
+        weekStartDate.setDate(date.getDate() - dayOfWeek);
+        groupKey = weekStartDate.toISOString().split('T')[0];
+        if (groupKey !== currentGroupKey) {
+          displayDate = 'Week of ' + weekStartDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+          dateLabels.push(displayDate);
+          type0Counts.push(0);
+          type1Counts.push(0);
+          type2Counts.push(0);
+          currentGroupKey = groupKey;
+          groupIndex++;
+          aggregateMap.set(groupKey, { index: groupIndex, data: [0, 0, 0] });
+        }
+      } else if (grouping === 'Months') {
+        groupKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        if (groupKey !== currentGroupKey) {
+          displayDate = date.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+          dateLabels.push(displayDate);
+          type0Counts.push(0);
+          type1Counts.push(0);
+          type2Counts.push(0);
+          currentGroupKey = groupKey;
+          groupIndex++;
+          aggregateMap.set(groupKey, { index: groupIndex, data: [0, 0, 0] });
+        }
+      } else {
+        groupKey = dayNumber;
+        displayDate = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+        dateLabels.push(displayDate);
+        type0Counts.push(0);
+        type1Counts.push(0);
+        type2Counts.push(0);
+        dayMap.set(dayNumber, { index: i });
+      }
+    }
+
+    if (reviewResults.length > 0 && reviewResults[0].values.length > 0) {
+      reviewResults[0].values.forEach(row => {
+        const dayNumber = typeof row[0] === 'number' ? row[0] : Number(row[0]) ?? 0;
+        const reviewType = typeof row[1] === 'number' ? row[1] : Number(row[1]) ?? 0;
+        const count = typeof row[2] === 'number' ? row[2] : Number(row[2]) ?? 0;
+        const date = new Date(startDate);
+        date.setDate(date.getDate() + dayNumber);
+        date.setHours(0, 0, 0, 0);
+        let targetIndex = -1;
+        let targetMapEntry: { index: number; data: [number, number, number] } | undefined = undefined;
+        if (grouping === 'Weeks') {
+          const dayOfWeek = (date.getDay() + 6) % 7;
+          const weekStartDate = new Date(date);
+          weekStartDate.setDate(date.getDate() - dayOfWeek);
+          const groupKey = weekStartDate.toISOString().split('T')[0];
+          if (aggregateMap.has(groupKey)) {
+            targetMapEntry = aggregateMap.get(groupKey);
+            targetIndex = targetMapEntry?.index ?? -1;
+          }
+        } else if (grouping === 'Months') {
+          const groupKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+          if (aggregateMap.has(groupKey)) {
+            targetMapEntry = aggregateMap.get(groupKey);
+            targetIndex = targetMapEntry?.index ?? -1;
+          }
+        } else {
+          if (dayMap.has(dayNumber)) {
+            targetIndex = dayMap.get(dayNumber)?.index ?? -1;
+          }
+        }
+        if (targetIndex !== -1) {
+          if (reviewType === 0) {
+            if (grouping === 'Days') type0Counts[targetIndex] += count; else if (targetMapEntry) targetMapEntry.data[0] += count;
+          } else if (reviewType === 1) {
+            if (grouping === 'Days') type1Counts[targetIndex] += count; else if (targetMapEntry) targetMapEntry.data[1] += count;
+          } else if (reviewType === 2) {
+            if (grouping === 'Days') type2Counts[targetIndex] += count; else if (targetMapEntry) targetMapEntry.data[2] += count;
+          }
+        }
+      });
+      if (grouping === 'Weeks' || grouping === 'Months') {
+        aggregateMap.forEach(entry => {
+          type0Counts[entry.index] = entry.data[0];
+          type1Counts[entry.index] = entry.data[1];
+          type2Counts[entry.index] = entry.data[2];
+        });
+      }
+    }
+    return { labels: dateLabels, counts: [type0Counts, type1Counts, type2Counts], typeLabels: ['New cards', 'Failed reviews', 'Successful reviews'] };
+  } catch (error) {
+    logger.error('Error fetching review history:', error);
     return null;
   }
 }

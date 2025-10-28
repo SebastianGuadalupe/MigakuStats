@@ -9,6 +9,7 @@ import { useCardsStore } from "./stores/cards";
 import WordCount from "./components/WordCount.vue";
 import NativeStats from "./components/NativeStats.vue";
 import CardsDue from "./components/CardsDue.vue";
+import ReviewHistory from "./components/ReviewHistory.vue";
 import ActionSheet from "./components/ActionSheet.vue";
 
 import { watch } from "vue";
@@ -26,9 +27,24 @@ const canAddCard = computed(() => cardsStore.cards.some(c => !c.visible));
 const hiddenCardOptions = computed(() => {
   return cardsStore.cards.filter(c => !c.visible).map(card => ({
     id: card.id,
-    label: card.id === 'NativeStats' ? 'Review heatmap' : card.id === 'WordCount' ? 'Word count' : card.id === 'CardsDue' ? 'Cards due' : card.id
+    label: getCardLabel(card.id)
   }));
 });
+
+function getCardLabel(cardId: string) {
+  switch (cardId) {
+    case 'NativeStats':
+      return 'Review heatmap';
+    case 'WordCount':
+      return 'Word count';
+    case 'CardsDue':
+      return 'Cards due';
+    case 'ReviewHistory':
+      return 'Review history';
+    default:
+      return cardId;
+  }
+}
 
 const addCardDropdownSelection = ref<string|undefined>(undefined);
 
@@ -54,7 +70,8 @@ watch(
 const cardComponents: Record<string, any> = {
   NativeStats,
   WordCount,
-  CardsDue
+  CardsDue,
+  ReviewHistory
 };
 
 function setMoveMode(value: boolean) {
