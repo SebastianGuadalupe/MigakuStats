@@ -11,7 +11,7 @@ const STORAGE_KEY = 'migaku-cards';
 const DEFAULT_CARDS: CardState[] = [
   { id: 'NativeStats', visible: true, item: { i: 'NativeStats', x: 0, y: 0, w: 6, h: 6, minW: 6, maxW: 12, minH: 5, maxH: Infinity } },
   { id: 'WordCount', visible: true, item: { i: 'WordCount', x: 6, y: 0, w: 5, h: 6, minW: 4, maxW: 12, minH: 5, maxH: 8 } },
-  { id: 'CardsDue', visible: true, item: { i: 'CardsDue', x: 11, y: 0, w: 5, h: 6, minW: 4, maxW: 12, minH: 5, maxH: 8 } }
+  { id: 'CardsDue', visible: true, item: { i: 'CardsDue', x: 0, y: 6, w: 5, h: 6, minW: 4, maxW: 12, minH: 5, maxH: 8 } }
 ];
 
 export const useCardsStore = defineStore('cards', () => {
@@ -73,6 +73,7 @@ export const useCardsStore = defineStore('cards', () => {
   }
 
   function hideCard(id: string) {
+    console.log('hideCard', id);
     const card = cards.value.find(c => c.id === id);
     if (card) card.visible = false;
   }
@@ -99,8 +100,8 @@ export const useCardsStore = defineStore('cards', () => {
   }
 
   const layout = computed(() =>
-    cards.value.map(card => card.item)
-  );
+    cards.value.filter((card: CardState) => card.visible).map(card => card.item)
+  );  
 
   return {
     cards,
