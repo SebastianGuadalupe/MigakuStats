@@ -171,7 +171,7 @@ watch([language, selectedDeckId], async ([lang, deckId], _prev, onCleanup) => {
     >
       Word Status
     </h3>
-    <div v-if="wordStats && !isLoading && !error" v-bind:[componentHash]="true">
+    <div v-if="wordStats && !isLoading && !error" v-bind:[componentHash]="true" style="height: calc(100% - 56px); display: flex; align-items: center; justify-content: center;">
       <div v-bind:[componentHash]="true" class="MCS__wordcount">
         <div v-bind:[componentHash]="true" class="MCS__wordcount__details" v-show="!isOverflowing">
           <div v-bind:[componentHash]="true">

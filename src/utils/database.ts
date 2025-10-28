@@ -3,7 +3,7 @@ import pako from 'pako';
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 import { logger } from './logger';
 import { DB_CONFIG, APP_SETTINGS } from './constants';
-import { WORD_QUERY, WORD_QUERY_WITH_DECK } from './sql-queries';
+import { WORD_QUERY, WORD_QUERY_WITH_DECK, DUE_QUERY, CURRENT_DATE_QUERY } from './sql-queries';
 
 interface DatabaseState {
   sql: SqlJsStatic | null;
@@ -228,6 +228,77 @@ export async function fetchWordStats(
     }
   } catch (error) {
     logger.error('Error fetching word stats:', error);
+    return null;
+  }
+}
+
+export interface DueStats {
+  labels: string[];
+  counts: number[];
+  knownCounts?: number[];
+  learningCounts?: number[];
+}
+
+export async function fetchDueStats(
+  language: string,
+  deckId: string = APP_SETTINGS.DEFAULT_DECK_ID
+): Promise<DueStats | null> {
+  try {
+    const db = await loadDatabase();
+    if (!db) {
+      logger.error('Failed to load database');
+      return null;
+    }
+    let currentDayNumber = 0;
+    let currentDate = new Date();
+    currentDate.setHours(0,0,0,0);
+    try {
+      const dateResult = db.exec(CURRENT_DATE_QUERY);
+      if (dateResult.length > 0 && dateResult[0].values.length > 0 && dateResult[0].values[0][0]) {
+        currentDate = new Date(dateResult[0].values[0][0] + 'T00:00:00');
+        currentDate.setHours(0,0,0,0);
+      }
+    } catch(err) {
+      logger.warn('Could not load study.activeDay.currentDate; using system date', err);
+    }
+    const chartStartDate = new Date(2020, 0, 1, 0, 0, 0, 0);
+    currentDayNumber = Math.floor((currentDate.getTime() - chartStartDate.getTime()) / (1000 * 60 * 60 * 24));
+    const forecastDays = 30;
+    const endDayNumber = currentDayNumber + (forecastDays - 1);
+    let dueQuery = DUE_QUERY;
+    const params: (string|number)[] = [language, currentDayNumber, endDayNumber];
+    if (deckId !== APP_SETTINGS.DEFAULT_DECK_ID) {
+      dueQuery += ' AND c.deckId = ?';
+      params.push(deckId);
+    }
+    dueQuery += ' GROUP BY due, interval_range ORDER BY due';
+    const dueResults = db.exec(dueQuery, params);
+    const labels: string[] = [];
+    const knownCounts = new Array(forecastDays).fill(0);
+    const learningCounts = new Array(forecastDays).fill(0);
+    const counts = new Array(forecastDays).fill(0);
+    let d = new Date(currentDate);
+    d.setDate(d.getDate() - 0);
+    for(let i=0;i<forecastDays;i++) {
+      labels.push(d.toLocaleDateString(undefined, {month:'short', day:'numeric', year:'numeric'}));
+      d.setDate(d.getDate()+1);
+    }
+    if(dueResults.length > 0 && dueResults[0].values.length > 0) {
+      dueResults[0].values.forEach((row: any[]) => {
+        const due = row[0];
+        const intervalRange = row[1];
+        const count = row[2];
+        const dayIndex = due - currentDayNumber;
+        if(dayIndex >= 0 && dayIndex < forecastDays) {
+          if(intervalRange === 'learning') learningCounts[dayIndex] += count;
+          else if(intervalRange === 'known') knownCounts[dayIndex] += count;
+          counts[dayIndex] += count;
+        }
+      });
+    }
+    return { labels, counts, knownCounts, learningCounts };
+  } catch (error) {
+    logger.error('Error fetching due stats:', error);
     return null;
   }
 }
