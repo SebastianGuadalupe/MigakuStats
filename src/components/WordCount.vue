@@ -100,58 +100,60 @@ const chartData = computed(() => {
   };
 });
 
-const chartOptions = {
-  responsive: true,
-  maintainAspectRatio: false,
-  aspectRatio: 1.6,
-  animation: {
-    duration: 800,
-    easing: "easeOutQuart" as const,
-  },
-  layout: {
-    padding: {
-      left: 0,
-      right: 0,
-      top: 0,
-      bottom: 0,
+const chartOptions = computed(() => {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    aspectRatio: 1.6,
+    animation: {
+      duration: 800,
+      easing: "easeOutQuart" as const,
     },
-  },
-  plugins: {
-    legend: {
-      position: "right" as const,
-      labels: {
-        color: themeColors.value.textColor,
-        usePointStyle: true,
-        pointStyle: "circle" as const,
-      }
-    },
-    tooltip: {
-      callbacks: {
-        label: function (context: any) {
-          let label = context.label || "";
-          if (label) {
-            label += ": ";
-          }
-          if (context.parsed !== null) {
-            label += context.parsed.toLocaleString();
-          }
-          return label;
-        },
+    layout: {
+      padding: {
+        left: 0,
+        right: 0,
+        top: 0,
+        bottom: 0,
       },
-      backgroundColor: themeColors.value.backgroundElevation2,
-      titleFontColor: themeColors.value.textColor,
-      caretSize: CHART_CONFIG.TOOLTIP_CONFIG.CARET_SIZE,
-      padding: CHART_CONFIG.TOOLTIP_CONFIG.PADDING,
-      cornerRadius: CHART_CONFIG.TOOLTIP_CONFIG.CORNER_RADIUS,
-      boxPadding: CHART_CONFIG.TOOLTIP_CONFIG.BOX_PADDING,
-      multiKeyBackground: themeColors.value.backgroundElevation1,
+    },
+    plugins: {
+      legend: {
+        position: "right" as const,
+        labels: {
+          color: themeColors.value.textColor,
+          usePointStyle: true,
+          pointStyle: "circle" as const,
+        }
+      },
+      tooltip: {
+        callbacks: {
+          label: function (context: any) {
+            let label = context.label || "";
+            if (label) {
+              label += ": ";
+            }
+            if (context.parsed !== null) {
+              label += context.parsed.toLocaleString();
+            }
+            return label;
+          },
+        },
+        backgroundColor: themeColors.value.backgroundElevation2,
+        titleFontColor: themeColors.value.textColor,
+        caretSize: CHART_CONFIG.TOOLTIP_CONFIG.CARET_SIZE,
+        padding: CHART_CONFIG.TOOLTIP_CONFIG.PADDING,
+        cornerRadius: CHART_CONFIG.TOOLTIP_CONFIG.CORNER_RADIUS,
+        boxPadding: CHART_CONFIG.TOOLTIP_CONFIG.BOX_PADDING,
+        multiKeyBackground: themeColors.value.backgroundElevation1,
+        bodyColor: themeColors.value.textColor,
+        titleColor: themeColors.value.textColor,
+      },
       bodyColor: themeColors.value.textColor,
       titleColor: themeColors.value.textColor,
     },
-    bodyColor: themeColors.value.textColor,
-    titleColor: themeColors.value.textColor,
-  },
 };
+});
 
 watch([language, selectedDeckId], async ([lang, deckId], _prev, onCleanup) => {
   if (!lang) return;
