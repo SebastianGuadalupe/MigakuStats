@@ -5,6 +5,7 @@ import { waitForElement } from './utils/observers';
 import { SELECTORS } from './utils/constants';
 import { logger } from './utils/logger';
 import { useAppStore } from './stores/app';
+// @ts-ignore
 import { GM_addStyle } from 'monkey';
 
 const VUE_CONTAINER_ID = SELECTORS.VUE_CONTAINER_ID;
