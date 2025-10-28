@@ -11,6 +11,7 @@ import NativeStats from "./components/NativeStats.vue";
 import CardsDue from "./components/CardsDue.vue";
 import ReviewHistory from "./components/ReviewHistory.vue";
 import ActionSheet from "./components/ActionSheet.vue";
+import FloatingButton from "./components/FloatingButton.vue";
 
 import { watch } from "vue";
 
@@ -22,45 +23,48 @@ const languageObserver = ref<MutationObserver | null>(null);
 const moveMode = ref(false);
 const layout = ref<Layout>(cardsStore.layout);
 const addCardDropdown = ref(false);
-const canAddCard = computed(() => cardsStore.cards.some(c => !c.visible));
+const canAddCard = computed(() => cardsStore.cards.some((c) => !c.visible));
 
 const hiddenCardOptions = computed(() => {
-  return cardsStore.cards.filter(c => !c.visible).map(card => ({
-    id: card.id,
-    label: getCardLabel(card.id)
-  }));
+  return cardsStore.cards
+    .filter((c) => !c.visible)
+    .map((card) => ({
+      id: card.id,
+      label: getCardLabel(card.id),
+    }));
 });
 
 function getCardLabel(cardId: string) {
   switch (cardId) {
-    case 'NativeStats':
-      return 'Review heatmap';
-    case 'WordCount':
-      return 'Word count';
-    case 'CardsDue':
-      return 'Cards due';
-    case 'ReviewHistory':
-      return 'Review history';
+    case "NativeStats":
+      return "Review heatmap";
+    case "WordCount":
+      return "Word count";
+    case "CardsDue":
+      return "Cards due";
+    case "ReviewHistory":
+      return "Review history";
     default:
       return cardId;
   }
 }
 
-const addCardDropdownSelection = ref<string|undefined>(undefined);
+const addCardDropdownSelection = ref<string | undefined>(undefined);
 
 function handleAddCardSelect(cardId: string) {
-  console.log('handleAddCardSelect', cardId);
+  console.log("handleAddCardSelect", cardId);
   cardsStore.showCard(cardId);
   addCardDropdown.value = false;
   addCardDropdownSelection.value = undefined;
 }
 
 watch(
-  () => cardsStore.cards.map(card => ({
-    id: card.id,
-    visible: card.visible,
-    ...card.item
-  })),
+  () =>
+    cardsStore.cards.map((card) => ({
+      id: card.id,
+      visible: card.visible,
+      ...card.item,
+    })),
   () => {
     layout.value = cardsStore.layout;
   },
@@ -71,7 +75,7 @@ const cardComponents: Record<string, any> = {
   NativeStats,
   WordCount,
   CardsDue,
-  ReviewHistory
+  ReviewHistory,
 };
 
 function setMoveMode(value: boolean) {
@@ -148,13 +152,13 @@ function renderCardComponent(id: string) {
 
 watch(
   () => {
-    const card = cardsStore.cards.find(c => c.id === 'NativeStats');
+    const card = cardsStore.cards.find((c) => c.id === "NativeStats");
     return card ? card.visible : true;
   },
   (visible) => {
-    const node = document.getElementById('original-stats-card-container');
+    const node = document.getElementById("original-stats-card-container");
     if (node) {
-      node.style.display = visible ? '' : 'none';
+      node.style.display = visible ? "" : "none";
     }
   },
   { immediate: true }
@@ -164,12 +168,18 @@ watch(
 <template>
   <div class="MCS_wrapper">
     <div style="margin-bottom: 12px; display: flex; gap: 12px">
-      <button
+      <FloatingButton
         :[componentHash]="true"
-        @click="setMoveMode(!moveMode); saveLayout(layout);"
-        class="UiButton -plain -icon-only -icon-left -floating MCS__shuffle-button"
+        :label="moveMode ? 'Exit Move Mode' : 'Enter Move Mode'"
+        :customClass="'MCS__shuffle-button'"
+        :bottom="24"
+        :left="24"
+        @click="
+          setMoveMode(!moveMode);
+          saveLayout(layout);
+        "
       >
-        <div class="UiButton__icon">
+        <template #icon>
           <div class="UiIcon" style="width: 24px">
             <div class="UiSvg__inner" style="margin: 0; font-size: 24px">
               <svg
@@ -206,15 +216,18 @@ watch(
               </svg>
             </div>
           </div>
-        </div>
-      </button>
-      <button
+        </template>
+      </FloatingButton>
+      <FloatingButton
         v-if="moveMode"
         :[componentHash]="true"
+        label="Undo layout"
+        :customClass="'MCS__undo-button'"
+        :bottom="24"
+        :left="72"
         @click="undoLayout"
-        class="UiButton -plain -icon-only -icon-left -floating MCS__undo-button"
       >
-        <div class="UiButton__icon">
+        <template #icon>
           <div class="UiIcon" style="width: 24px">
             <div class="UiSvg__inner" style="margin: 0; font-size: 24px">
               <svg
@@ -234,15 +247,18 @@ watch(
               </svg>
             </div>
           </div>
-        </div>
-      </button>
-      <button
+        </template>
+      </FloatingButton>
+      <FloatingButton
         v-if="moveMode && canAddCard"
         :[componentHash]="true"
+        label="Add card"
+        :customClass="'MCS__add-button'"
+        :bottom="24"
+        :left="120"
         @click="toggleAddCardDropdown"
-        class="UiButton -plain -icon-only -icon-left -floating MCS__add-button"
       >
-        <div class="UiButton__icon">
+        <template #icon>
           <div class="UiIcon" style="width: 24px">
             <div class="UiSvg__inner" style="margin: 0; font-size: 24px">
               <svg
@@ -252,12 +268,18 @@ watch(
                 fill="none"
                 xmlns="http://www.w3.org/2000/svg"
               >
-                <path d="M12 5V19M5 12H19" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path
+                  d="M12 5V19M5 12H19"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
               </svg>
             </div>
           </div>
-        </div>
-      </button>
+        </template>
+      </FloatingButton>
       <ActionSheet
         v-if="addCardDropdown && moveMode && canAddCard"
         class="MCS__add-card-action-sheet"
@@ -278,29 +300,61 @@ watch(
     >
       <template #item="{ item }">
         <div class="MCS__stats-card" :data-card-id="item.i">
-          <div style="position: relative; display: flex; align-items: center; justify-content: space-between;">
+          <div
+            style="
+              position: relative;
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+            "
+          >
             <span
               v-if="moveMode"
               class="move-handle"
-              style="position: absolute; left: 8px; top: 8px; cursor: move; user-select: none; font-size: 24px;"
-            >⠿</span>
+              style="
+                position: absolute;
+                left: 8px;
+                top: 8px;
+                cursor: move;
+                user-select: none;
+                font-size: 24px;
+              "
+              >⠿</span
+            >
             <div style="position: absolute; right: 8px; top: 8px">
-              <button
+              <FloatingButton
                 v-if="moveMode"
                 @click="hideCard(String(item.i))"
-                class="UiButton UiButton--icon"
-                title="Hide card"
+                label="Hide card"
+                :customClass="'UiButton UiButton--icon'"
+                :top="24"
+                :right="24"
               >
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                  style="width: 24px; height: 24px"
-                >
-                  <path
-                    d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"
-                  />
-                </svg>
-              </button>
+                <template #icon>
+                  <div class="UiIcon" style="width: 24px">
+                    <div
+                      class="UiSvg__inner"
+                      style="margin: 0; font-size: 24px"
+                    >
+                      <svg
+                        width="100%"
+                        height="100%"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        xmlns="http://www.w3.org/2000/svg"
+                      >
+                        <path
+                          d="M18 6L6 18M6 6L18 18"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                      </svg>
+                    </div>
+                  </div>
+                </template>
+              </FloatingButton>
             </div>
           </div>
           <component :is="renderCardComponent(String(item.i))" />
