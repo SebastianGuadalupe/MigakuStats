@@ -185,6 +185,24 @@ async function loadDatabase(): Promise<Database | null> {
   }
 }
 
+export function clearDatabaseCache(): void {
+  logger.debug('Clearing database cache');
+  if (dbState.db) {
+    try {
+      dbState.db.close();
+    } catch (err) {
+      logger.warn('Error closing database:', err);
+    }
+    dbState.db = null;
+  }
+}
+
+export async function reloadDatabase(): Promise<Database | null> {
+  logger.debug('Reloading database from IndexedDB');
+  clearDatabaseCache();
+  return loadDatabase();
+}
+
 export interface WordStats {
   known_count: number;
   learning_count: number;

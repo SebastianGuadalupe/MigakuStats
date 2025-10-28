@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
-import { fetchWordStats as dbFetchWordStats, WordStats } from '../utils/database';
+import { fetchWordStats as dbFetchWordStats, WordStats, reloadDatabase } from '../utils/database';
 const STORAGE_KEY = 'migaku-wordstats';
 
 export const useWordStatsStore = defineStore('wordStats', () => {
@@ -40,6 +40,14 @@ export const useWordStatsStore = defineStore('wordStats', () => {
     }
   }
 
+  async function refetch(lang: string, deckId: string) {
+    isLoading.value = true;
+    error.value = '';
+    wordStats.value = null;
+    await reloadDatabase();
+    return fetchWordStatsIfNeeded(lang, deckId);
+  }
+
   function setWordStats(stats: any) {
     wordStats.value = stats;
   }
@@ -54,6 +62,7 @@ export const useWordStatsStore = defineStore('wordStats', () => {
     setWordStats,
     clearWordStats,
     fetchWordStatsIfNeeded,
+    refetch,
     loadFromStorage
   };
 });

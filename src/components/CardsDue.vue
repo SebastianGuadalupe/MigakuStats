@@ -70,11 +70,14 @@ function checkResize() {
   shouldHideDates.value = hideDates;
 }
 
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener("resize", checkResize);
   nextTick(() => {
     checkResize();
   });
+  if (language.value) {
+    await dueStatsStore.refetch(language.value, selectedDeckId.value);
+  }
 });
 onBeforeUnmount(() => {
   window.removeEventListener("resize", checkResize);
@@ -98,8 +101,7 @@ watch(
     onCleanup(() => (cancelled = true));
     await fetchPromise;
     if (cancelled) return;
-  },
-  { immediate: true }
+  }
 );
 
 const chartData = computed(() => {

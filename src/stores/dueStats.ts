@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
-import { fetchDueStats, DueStats } from '../utils/database';
+import { fetchDueStats, DueStats, reloadDatabase } from '../utils/database';
 const STORAGE_KEY = 'migaku-dueStats';
 
 export const useDueStatsStore = defineStore('dueStats', () => {
@@ -39,6 +39,14 @@ export const useDueStatsStore = defineStore('dueStats', () => {
     }
   }
 
+  async function refetch(lang: string, deckId: string) {
+    isLoading.value = true;
+    error.value = '';
+    dueStats.value = null;
+    await reloadDatabase();
+    return fetchDueStatsIfNeeded(lang, deckId);
+  }
+
   function setDueStats(stats: DueStats|null) { dueStats.value = stats; }
   function clearDueStats() { dueStats.value = null; }
 
@@ -49,6 +57,7 @@ export const useDueStatsStore = defineStore('dueStats', () => {
     setDueStats,
     clearDueStats,
     fetchDueStatsIfNeeded,
+    refetch,
     loadFromStorage
   };
 });
