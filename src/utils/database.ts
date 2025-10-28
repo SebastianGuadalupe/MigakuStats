@@ -4,6 +4,7 @@ import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 import { logger } from './logger';
 import { DB_CONFIG, APP_SETTINGS, CHART_CONFIG } from './constants';
 import { WORD_QUERY, WORD_QUERY_WITH_DECK, DUE_QUERY, CURRENT_DATE_QUERY, REVIEW_HISTORY_QUERY } from './sql-queries';
+import { Grouping, PeriodId } from '../stores/reviewHistory';
 
 interface DatabaseState {
   sql: SqlJsStatic | null;
@@ -312,8 +313,8 @@ export interface ReviewHistoryResult {
 export async function fetchReviewHistory(
   language: string,
   deckId: string = APP_SETTINGS.DEFAULT_DECK_ID,
-  periodId: string = 'reviewHistory1',
-  grouping: 'Days' | 'Weeks' | 'Months' = 'Days'
+  periodId: PeriodId = "1 Month" as const,
+  grouping: Grouping = "Days" as const
 ): Promise<ReviewHistoryResult | null> {
   try {
     const db = await loadDatabase();
@@ -330,12 +331,20 @@ export async function fetchReviewHistory(
       ).getTime()) / (1000 * 60 * 60 * 24)
     );
 
-    const period = periodId.replace('reviewHistory', '');
+    let period: string | number;
+    if (periodId === 'All time') {
+      period = 'All';
+    } else if (periodId === '1 Year') {
+      period = 12;
+    } else {
+      period = periodId.replace(' Months', '').replace('Months', '');
+    }
+    
     let periodDays: number;
     if (period === 'All') {
       periodDays = currentDayNumber;
     } else {
-      const periodMonths = parseInt(period, 10) || 1;
+      const periodMonths = typeof period === 'number' ? period : parseInt(period, 10) || 1;
       const periodStartDate = new Date(currentDate);
       periodStartDate.setMonth(currentDate.getMonth() - periodMonths);
       periodDays = Math.round((currentDate.getTime() - periodStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;

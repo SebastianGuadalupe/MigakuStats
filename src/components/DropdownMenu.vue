@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { ref, computed, onMounted, onBeforeUnmount, defineProps, defineEmits } from 'vue';
+import { ref, computed, watch, onBeforeUnmount, defineProps, defineEmits, defineExpose } from 'vue';
 
 const props = defineProps({
   items: {
@@ -35,6 +35,9 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue']);
 const isDropdownOpen = ref(false);
 const componentHash = computed(() => props.componentHash || "");
+const rootRef = ref<HTMLElement|null>(null);
+
+defineExpose({ rootRef, isDropdownOpen });
 
 const selectedItemLabel = computed(() => {
   const selectedItem = props.items.find(item => getItemKey(item) === props.modelValue);
@@ -55,10 +58,6 @@ function selectItem(item: any, event: MouseEvent) {
   isDropdownOpen.value = false;
 }
 
-function closeDropdown() {
-  isDropdownOpen.value = false;
-}
-
 function getItemKey(item: any) {
   return item[props.itemKey];
 }
@@ -70,16 +69,33 @@ function getItemLabel(item: any) {
   return item[props.itemLabel];
 }
 
-onMounted(() => {
-  document.addEventListener('click', closeDropdown);
+let cleanupClick: (() => void) | null = null;
+
+watch(isDropdownOpen, (open) => {
+  if (open) {
+    const handler = (event: MouseEvent) => {
+      if (!rootRef.value) return;
+      if (rootRef.value.contains(event.target as Node)) return;
+      isDropdownOpen.value = false;
+    };
+    document.addEventListener('mousedown', handler);
+    cleanupClick = () => document.removeEventListener('mousedown', handler);
+  } else {
+    if (cleanupClick) {
+      cleanupClick();
+      cleanupClick = null;
+    }
+  }
 });
+
 onBeforeUnmount(() => {
-  document.removeEventListener('click', closeDropdown);
+  if (cleanupClick) cleanupClick();
 });
 </script>
 
 <template>
   <div
+    ref="rootRef"
     :[componentHash]="true"
     tabindex="0"
     class="multiselect multiselect--right"
