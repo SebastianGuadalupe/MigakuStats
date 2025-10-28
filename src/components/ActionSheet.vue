@@ -7,7 +7,7 @@ interface ActionSheetItem {
   icon?: any; // Could be a component or string name
 }
 
-const props = withDefaults(defineProps<{
+withDefaults(defineProps<{
   actions: ActionSheetItem[];
   visible?: boolean;
   desktop?: boolean;

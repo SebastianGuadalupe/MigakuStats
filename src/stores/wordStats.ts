@@ -1,10 +1,10 @@
 import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
-import { fetchWordStats as dbFetchWordStats } from '../utils/database';
+import { fetchWordStats as dbFetchWordStats, WordStats } from '../utils/database';
 const STORAGE_KEY = 'migaku-wordstats';
 
 export const useWordStatsStore = defineStore('wordStats', () => {
-  const wordStats = ref(null);
+  const wordStats = ref<WordStats|null>(null);
   const isLoading = ref(false);
   const error = ref('');
 
@@ -30,6 +30,7 @@ export const useWordStatsStore = defineStore('wordStats', () => {
     isLoading.value = true;
     try {
       const stats = await dbFetchWordStats(lang, deckId);
+      if (!stats) throw new Error('No word stats found');
       wordStats.value = stats;
       error.value = '';
     } catch (e) {

@@ -1,5 +1,6 @@
 import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
 import pako from 'pako';
+// @ts-ignore: sql.js/dist/sql-wasm.wasm?url is a valid URL
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 import { logger } from './logger';
 import { DB_CONFIG, APP_SETTINGS, CHART_CONFIG } from './constants';
