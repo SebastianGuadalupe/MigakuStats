@@ -9,6 +9,7 @@ import { useCardsStore } from "./stores/cards";
 import WordCount from "./components/WordCount.vue";
 import NativeStats from "./components/NativeStats.vue";
 import CardsDue from "./components/CardsDue.vue";
+import ActionSheet from "./components/ActionSheet.vue";
 
 import { watch } from "vue";
 
@@ -19,6 +20,24 @@ const themeObserver = ref<MutationObserver | null>(null);
 const languageObserver = ref<MutationObserver | null>(null);
 const moveMode = ref(false);
 const layout = ref<Layout>(cardsStore.layout);
+const addCardDropdown = ref(false);
+const canAddCard = computed(() => cardsStore.cards.some(c => !c.visible));
+
+const hiddenCardOptions = computed(() => {
+  return cardsStore.cards.filter(c => !c.visible).map(card => ({
+    id: card.id,
+    label: card.id === 'NativeStats' ? 'Review heatmap' : card.id === 'WordCount' ? 'Word count' : card.id === 'CardsDue' ? 'Cards due' : card.id
+  }));
+});
+
+const addCardDropdownSelection = ref<string|undefined>(undefined);
+
+function handleAddCardSelect(cardId: string) {
+  console.log('handleAddCardSelect', cardId);
+  cardsStore.showCard(cardId);
+  addCardDropdown.value = false;
+  addCardDropdownSelection.value = undefined;
+}
 
 watch(
   () => cardsStore.cards.map(card => ({
@@ -38,7 +57,6 @@ const cardComponents: Record<string, any> = {
   CardsDue
 };
 
-
 function setMoveMode(value: boolean) {
   moveMode.value = value;
 }
@@ -55,6 +73,10 @@ function undoLayout() {
   cardsStore.loadFromStorage();
   layout.value = cardsStore.layout;
   setMoveMode(false);
+}
+
+function toggleAddCardDropdown() {
+  addCardDropdown.value = !addCardDropdown.value;
 }
 
 onMounted(() => {
@@ -197,6 +219,36 @@ watch(
           </div>
         </div>
       </button>
+      <button
+        v-if="moveMode && canAddCard"
+        :[componentHash]="true"
+        @click="toggleAddCardDropdown"
+        class="UiButton -plain -icon-only -icon-left -floating MCS__add-button"
+      >
+        <div class="UiButton__icon">
+          <div class="UiIcon" style="width: 24px">
+            <div class="UiSvg__inner" style="margin: 0; font-size: 24px">
+              <svg
+                width="100%"
+                height="100%"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path d="M12 5V19M5 12H19" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+          </div>
+        </div>
+      </button>
+      <ActionSheet
+        v-if="addCardDropdown && moveMode && canAddCard"
+        class="MCS__add-card-action-sheet"
+        :actions="hiddenCardOptions"
+        :disable-icons="true"
+        @select="handleAddCardSelect($event.action.id)"
+      >
+      </ActionSheet>
     </div>
     <GridLayout
       v-model:layout="layout"
@@ -209,27 +261,12 @@ watch(
     >
       <template #item="{ item }">
         <div class="MCS__stats-card" :data-card-id="item.i">
-          <div
-            style="
-              position: relative;
-              display: flex;
-              align-items: center;
-              justify-content: space-between;
-            "
-          >
+          <div style="position: relative; display: flex; align-items: center; justify-content: space-between;">
             <span
               v-if="moveMode"
               class="move-handle"
-              style="
-                position: absolute;
-                left: 8px;
-                top: 8px;
-                cursor: move;
-                user-select: none;
-                font-size: 24px;
-              "
-              >⠿</span
-            >
+              style="position: absolute; left: 8px; top: 8px; cursor: move; user-select: none; font-size: 24px;"
+            >⠿</span>
             <div style="position: absolute; right: 8px; top: 8px">
               <button
                 v-if="moveMode"
@@ -278,6 +315,29 @@ watch(
   bottom: 24px;
   left: 72px;
   z-index: 1000;
+}
+
+.MCS__add-button {
+  position: fixed;
+  bottom: 24px;
+  left: 120px;
+  z-index: 1000;
+}
+
+.MCS__add-card-multiselect {
+  position: fixed !important;
+  bottom: 72px;
+  left: 120px;
+  min-width: 180px;
+  z-index: 1001;
+}
+
+.MCS__add-card-action-sheet {
+  position: fixed !important;
+  bottom: 72px;
+  left: 120px;
+  min-width: 180px;
+  z-index: 1001;
 }
 
 .vgl-layout {
