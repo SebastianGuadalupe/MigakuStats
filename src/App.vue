@@ -10,13 +10,27 @@ import WordCount from "./components/WordCount.vue";
 import NativeStats from "./components/NativeStats.vue";
 import CardsDue from "./components/CardsDue.vue";
 
+import { watch } from "vue";
+
 const appStore = useAppStore();
 const cardsStore = useCardsStore();
 const componentHash = computed(() => appStore.componentHash || "");
 const themeObserver = ref<MutationObserver | null>(null);
 const languageObserver = ref<MutationObserver | null>(null);
 const moveMode = ref(false);
-const layout = ref<Layout>(useCardsStore().layout);
+const layout = ref<Layout>(cardsStore.layout);
+
+watch(
+  () => cardsStore.cards.map(card => ({
+    id: card.id,
+    visible: card.visible,
+    ...card.item
+  })),
+  () => {
+    layout.value = cardsStore.layout;
+  },
+  { deep: true }
+);
 
 const cardComponents: Record<string, any> = {
   NativeStats,
@@ -92,6 +106,20 @@ onUnmounted(() => {
 function renderCardComponent(id: string) {
   return cardComponents[id] || null;
 }
+
+watch(
+  () => {
+    const card = cardsStore.cards.find(c => c.id === 'NativeStats');
+    return card ? card.visible : true;
+  },
+  (visible) => {
+    const node = document.getElementById('original-stats-card-container');
+    if (node) {
+      node.style.display = visible ? '' : 'none';
+    }
+  },
+  { immediate: true }
+);
 </script>
 
 <template>
