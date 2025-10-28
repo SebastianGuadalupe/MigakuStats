@@ -2,11 +2,7 @@ import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
 import { APP_SETTINGS } from '../utils/constants';
 
-interface AppState {
-  selectedDeckId: string;
-}
-
-const STORAGE_KEY = 'migaku-custom-stats';
+const STORAGE_KEY = 'migaku-app';
 
 export const useAppStore = defineStore('app', () => {
   const language = ref<string | null>(null);
@@ -18,8 +14,11 @@ export const useAppStore = defineStore('app', () => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
-        const data: AppState = JSON.parse(stored);
+        const data = JSON.parse(stored);
+        if (data.language) language.value = data.language;
+        if (data.theme) theme.value = data.theme;
         if (data.selectedDeckId) selectedDeckId.value = data.selectedDeckId;
+        if (data.componentHash) componentHash.value = data.componentHash;
       }
     } catch (error) {
       console.error('Failed to load app state from localStorage:', error);
@@ -28,8 +27,11 @@ export const useAppStore = defineStore('app', () => {
 
   function saveToStorage() {
     try {
-      const data: AppState = {
+      const data = {
+        language: language.value,
+        theme: theme.value,
         selectedDeckId: selectedDeckId.value,
+        componentHash: componentHash.value,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch (error) {
@@ -37,40 +39,24 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
-  watch(selectedDeckId, saveToStorage);
+  watch([language, theme, selectedDeckId, componentHash], saveToStorage);
 
-  function setLanguage(newLanguage: string | null) {
-    language.value = newLanguage;
-  }
-
-  function setTheme(newTheme: string | null) {
-    theme.value = newTheme;
-  }
-
-  function setSelectedDeckId(newDeckId: string) {
-    selectedDeckId.value = newDeckId;
-  }
-
-  function setComponentHash(hash: string) {
-    componentHash.value = hash;
-  }
-
-  function resetDeckSelection() {
-    selectedDeckId.value = 'all';
-  }
+  function setLanguage(newLanguage: string | null) { language.value = newLanguage; }
+  function setTheme(newTheme: string | null) { theme.value = newTheme; }
+  function setSelectedDeckId(newDeckId: string) { selectedDeckId.value = newDeckId; }
+  function setComponentHash(hash: string) { componentHash.value = hash; }
+  function resetDeckSelection() { selectedDeckId.value = 'all'; }
 
   return {
-    // State
     language,
     theme,
     selectedDeckId,
     componentHash,
-    // Actions
     setLanguage,
     setTheme,
     setSelectedDeckId,
     setComponentHash,
     resetDeckSelection,
-    loadFromStorage,
+    loadFromStorage
   };
 });
