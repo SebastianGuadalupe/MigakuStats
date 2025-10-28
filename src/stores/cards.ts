@@ -1,15 +1,16 @@
 import { defineStore } from 'pinia';
-import { ref, watch } from 'vue';
+import { ref, computed } from 'vue';
+import { Layout, GridItemProps } from 'grid-layout-plus';
 
 export interface CardState {
   id: string;
   visible: boolean;
+  item: GridItemProps;
 }
 const STORAGE_KEY = 'migaku-cards';
 const DEFAULT_CARDS: CardState[] = [
-  { id: 'NativeStats', visible: true },
-  { id: 'WordCount', visible: true },
-  // Add more cards as needed
+  { id: 'NativeStats', visible: true, item: { i: 'NativeStats', x: 0, y: 0, w: 6, h: 6, minW: 6, maxW: 12, minH: 5, maxH: Infinity } },
+  { id: 'WordCount', visible: true, item: { i: 'WordCount', x: 6, y: 0, w: 5, h: 6, minW: 4, maxW: 12, minH: 5, maxH: 8 } }
 ];
 
 export const useCardsStore = defineStore('cards', () => {
@@ -19,30 +20,57 @@ export const useCardsStore = defineStore('cards', () => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
-        const data = JSON.parse(stored);
-        if (Array.isArray(data)) cards.value = data;
+        const loaded = JSON.parse(stored);
+        if (Array.isArray(loaded)) {
+          const merged = loaded.map((userCard: any) => {
+            const defaultCard = DEFAULT_CARDS.find(d => d.id === userCard.id);
+            if (defaultCard) {
+              return {
+                ...defaultCard,
+                ...userCard,
+                item: {
+                  ...defaultCard.item,
+                  ...(userCard.item || {})
+                }
+              };
+            } else {
+              return userCard;
+            }
+          });
+          for (const defaultCard of DEFAULT_CARDS) {
+            if (!merged.some((c: any) => c.id === defaultCard.id)) {
+              merged.push(defaultCard);
+            }
+          }
+          cards.value = merged;
+        }
       }
     } catch (error) {
       console.error('Failed to load cards from localStorage:', error);
     }
   }
 
+  loadFromStorage();
+
   function saveToStorage() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(cards.value));
+      const data = cards.value.map(card => ({
+        id: card.id,
+        visible: card.visible,
+        item: {
+          i: card.item.i,
+          x: card.item.x,
+          y: card.item.y,
+          w: card.item.w,
+          h: card.item.h
+        }
+      }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch (error) {
       console.error('Failed to save cards to localStorage:', error);
     }
   }
 
-  watch(cards, saveToStorage, { deep: true });
-
-  function setCardsOrder(newOrder: string[]) {
-    cards.value = newOrder.map(id => {
-      const existing = cards.value.find(c => c.id === id);
-      return existing || { id, visible: true };
-    });
-  }
   function hideCard(id: string) {
     const card = cards.value.find(c => c.id === id);
     if (card) card.visible = false;
@@ -55,12 +83,31 @@ export const useCardsStore = defineStore('cards', () => {
     const card = cards.value.find(c => c.id === id);
     if (card) card.visible = !card.visible;
   }
+
+  function updateLayout(layoutArr: Layout): void {
+    for (const layoutItem of layoutArr) {
+      const card = cards.value.find(c => c.item.i === layoutItem.i);
+      if (card) {
+        card.item.x = layoutItem.x;
+        card.item.y = layoutItem.y;
+        card.item.w = layoutItem.w;
+        card.item.h = layoutItem.h;
+      }
+    }
+    saveToStorage();
+  }
+
+  const layout = computed(() =>
+    cards.value.map(card => card.item)
+  );
+
   return {
     cards,
-    setCardsOrder,
+    layout,
     hideCard,
     showCard,
     toggleCardVisibility,
-    loadFromStorage
+    loadFromStorage,
+    updateLayout
   };
 });

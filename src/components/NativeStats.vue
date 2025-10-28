@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, ref } from "vue";
+import { waitForElement } from "../utils/observers";
+import { SELECTORS } from "../utils/constants";
 
 const domSlotRef = ref<HTMLElement | null>(null);
 let nativeNode: HTMLElement | null = null;
@@ -15,6 +17,10 @@ function moveNativeNode() {
     }
     domSlotRef.value.appendChild(nativeNode);
     nativeNode.style.display = '';
+    const h2Title = nativeNode.querySelector('h2');
+    if (h2Title) {
+      h2Title.remove();
+    }
   }
 }
 
@@ -28,8 +34,15 @@ function restoreNativeNode() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   moveNativeNode();
+
+  const heatmapCard = await waitForElement(SELECTORS.HEATMAP);
+    if (heatmapCard && (heatmapCard instanceof HTMLElement)) {
+      heatmapCard.style.height = "calc(100% - 250px)";
+      heatmapCard.style.overflowY = "scroll";
+      heatmapCard.scrollTop = heatmapCard.scrollHeight;
+    }
 });
 
 onBeforeUnmount(() => {
@@ -37,7 +50,7 @@ onBeforeUnmount(() => {
 });
 </script>
 <template>
-  <div class="NativeStatsCard" ref="domSlotRef" style="min-width:250px;min-height:100px;">
+  <div class="NativeStatsCard" ref="domSlotRef">
   </div>
 </template>
 
@@ -47,5 +60,6 @@ onBeforeUnmount(() => {
   border: none;
   box-shadow: none;
   padding: 0;
+  height: 100%;
 }
 </style>

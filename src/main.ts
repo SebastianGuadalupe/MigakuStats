@@ -5,6 +5,7 @@ import { waitForElement } from './utils/observers';
 import { SELECTORS } from './utils/constants';
 import { logger } from './utils/logger';
 import { useAppStore } from './stores/app';
+import { GM_addStyle } from 'monkey';
 
 const VUE_CONTAINER_ID = SELECTORS.VUE_CONTAINER_ID;
 const STATS_ROUTE = '/statistic';
@@ -37,29 +38,39 @@ async function mountApp() {
       logger.error("Statistics element not found, cannot display stats.");
       return;
     }
+
+    // Get the component hash
     const componentHash = statisticsDiv.attributes[0].nodeName;
     appStore.setComponentHash(componentHash);
     logger.debug(`Component hash set to: ${componentHash}`);
+
+
     const statsContainer = await waitForElement(SELECTORS.TARGET_ELEMENT);
     if (!statsContainer || !(statsContainer instanceof HTMLElement)) {
       logger.error("Target container not found, cannot display stats.");
       return;
     }
+
+    // Make the page full width
+    statsContainer.style.maxWidth = "100vw";
+
+    // Add styles to the page
+    GM_addStyle(`.Statistic__card[${componentHash}] {
+      width: 100% !important;
+      height: 100% !important;
+      max-width: 1080px !important;
+    }`);
+
+    // Move heatmap card container to the new div
     const children = statsContainer.children;
     const newDiv = document.createElement("div");
-    newDiv.classList.add("MCS__stats-container");
+    newDiv.style.height = "100%";
     newDiv.id = "original-stats-card-container";
     Array.from(children).forEach(child => {
       newDiv.appendChild(child);
     });
     statsContainer.appendChild(newDiv);
-    statsContainer.style.display = "grid";
-    statsContainer.style.gridTemplateColumns = "repeat(auto-fit, minmax(250px, 1fr))";
-    statsContainer.style.gap = "20px";
-    statsContainer.style.width = "fit-content";
-    statsContainer.style.maxWidth = "calc(100% - 32px)";
-    statsContainer.parentElement!.style.maxWidth = "100vw";
-    logger.debug("Target element confirmed for display");
+
     logger.debug("Mounting Vue app to container");
     vueContainer = document.createElement('div');
     vueContainer.id = VUE_CONTAINER_ID;

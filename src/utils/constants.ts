@@ -15,6 +15,7 @@ export const SELECTORS = {
   MIGAKU_MAIN: ".MIGAKU-SRS",
   VUE_CONTAINER_ID: "migaku-custom-stats-vue-container",
   ERROR_CONTAINER_ID: "migaku-custom-stats-error",
+  HEATMAP: ".Statistic__heatmap"
 } as const;
 
 export const ROUTES = {
