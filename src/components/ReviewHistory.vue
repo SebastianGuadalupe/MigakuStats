@@ -325,6 +325,7 @@ function updateMenuSettings(newVals: { grouping: "Days" | "Weeks" | "Months"; pe
         <span>Could not load review history data.</span>
       </template>
       <FloatingMenuButton
+        v-if="!isLoading && !error && !cardsStore.isMoveModeActive"
         :settings="reviewHistoryMenuSettings"
         :modelValue="menuSettingValues"
         @update:modelValue="updateMenuSettings"

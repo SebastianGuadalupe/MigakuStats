@@ -20,7 +20,7 @@ const cardsStore = useCardsStore();
 const componentHash = computed(() => appStore.componentHash || "");
 const themeObserver = ref<MutationObserver | null>(null);
 const languageObserver = ref<MutationObserver | null>(null);
-const moveMode = ref(false);
+const moveMode = ref(cardsStore.isMoveModeActive);
 const layout = ref<Layout>(cardsStore.layout);
 const addCardDropdown = ref(false);
 const canAddCard = computed(() => cardsStore.cards.some((c) => !c.visible));
@@ -78,8 +78,12 @@ const cardComponents: Record<string, any> = {
   ReviewHistory,
 };
 
-function setMoveMode(value: boolean) {
+watch(() => cardsStore.isMoveModeActive, (value) => {
   moveMode.value = value;
+});
+
+function setMoveMode(value: boolean) {
+  cardsStore.setMoveMode(value);
 }
 
 function hideCard(id: string) {
