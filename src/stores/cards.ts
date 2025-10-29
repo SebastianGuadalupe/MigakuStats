@@ -9,14 +9,15 @@ export interface CardState {
 }
 const STORAGE_KEY = 'migaku-cards';
 const DEFAULT_CARDS: CardState[] = [
-  { id: 'NativeStats', visible: true, item: { i: 'NativeStats', x: 0, y: 0, w: 6, h: 6, minW: 6, maxW: 12, minH: 5, maxH: Infinity } },
-  { id: 'WordCount', visible: true, item: { i: 'WordCount', x: 6, y: 0, w: 5, h: 6, minW: 4, maxW: 12, minH: 5, maxH: 8 } },
-  { id: 'CardsDue', visible: true, item: { i: 'CardsDue', x: 0, y: 6, w: 5, h: 6, minW: 4, maxW: 12, minH: 5, maxH: 8 } },
-  { id: 'ReviewHistory', visible: true, item: { i: 'ReviewHistory', x: 5, y: 6, w: 5, h: 6, minW: 4, maxW: 12, minH: 5, maxH: 8 } }
+  { id: 'NativeStats', visible: true, item: { i: 'NativeStats', x: 0, y: 0, w: 6, h: 17, minW: 6, maxW: 12, minH: 5, maxH: Infinity } },
+  { id: 'WordCount', visible: true, item: { i: 'WordCount', x: 6, y: 0, w: 6, h: 5, minW: 4, maxW: 12, minH: 5, maxH: 8 } },
+  { id: 'CardsDue', visible: true, item: { i: 'CardsDue', x: 6, y: 5, w: 6, h: 6, minW: 4, maxW: 12, minH: 5, maxH: 8 } },
+  { id: 'ReviewHistory', visible: true, item: { i: 'ReviewHistory', x: 6, y: 11, w: 6, h: 6, minW: 4, maxW: 12, minH: 5, maxH: 8 } }
 ];
 
 export const useCardsStore = defineStore('cards', () => {
   const cards = ref<CardState[]>([...DEFAULT_CARDS]);
+  const isMoveModeActive = ref(false);
 
   function loadFromStorage() {
     try {
@@ -102,15 +103,21 @@ export const useCardsStore = defineStore('cards', () => {
 
   const layout = computed(() =>
     cards.value.filter((card: CardState) => card.visible).map(card => card.item)
-  );  
+  );
+
+  function setMoveMode(value: boolean) {
+    isMoveModeActive.value = value;
+  }
 
   return {
     cards,
     layout,
+    isMoveModeActive,
     hideCard,
     showCard,
     toggleCardVisibility,
     loadFromStorage,
-    updateLayout
+    updateLayout,
+    setMoveMode
   };
 });
