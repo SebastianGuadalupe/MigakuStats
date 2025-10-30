@@ -9,6 +9,7 @@ export default defineConfig({
     monkey({
       entry: 'src/main.ts',
       userscript: {
+        name: 'Migaku Custom Stats',
         icon: 'https://study.migaku.com/favicon.ico',
         namespace: 'http://tampermonkey.net/',
         match: ['https://study.migaku.com/*'],
