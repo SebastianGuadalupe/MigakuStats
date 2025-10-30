@@ -2,8 +2,9 @@ import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
 import pako from 'pako';
 import { logger } from './logger';
 import { DB_CONFIG, APP_SETTINGS, CHART_CONFIG } from './constants';
-import { WORD_QUERY, WORD_QUERY_WITH_DECK, DUE_QUERY, CURRENT_DATE_QUERY, REVIEW_HISTORY_QUERY, INTERVAL_QUERY, STUDY_STATS_QUERY, PASS_RATE_QUERY, NEW_CARDS_QUERY, CARDS_ADDED_QUERY, CARDS_LEARNED_QUERY, TOTAL_NEW_CARDS_QUERY, CARDS_LEARNED_PER_DAY_QUERY } from './sql-queries';
+import { WORD_QUERY, WORD_QUERY_WITH_DECK, DUE_QUERY, CURRENT_DATE_QUERY, REVIEW_HISTORY_QUERY, INTERVAL_QUERY, STUDY_STATS_QUERY, PASS_RATE_QUERY, NEW_CARDS_QUERY, CARDS_ADDED_QUERY, CARDS_LEARNED_QUERY, TOTAL_NEW_CARDS_QUERY, CARDS_LEARNED_PER_DAY_QUERY, DECKS_QUERY } from './sql-queries';
 import { Grouping, PeriodId } from '../stores/reviewHistory';
+import { Deck } from '../types/Deck';
 
 interface DatabaseState {
   sql: SqlJsStatic | null;
@@ -208,6 +209,29 @@ export interface WordStats {
   learning_count: number;
   unknown_count: number;
   ignored_count: number;
+}
+
+export async function fetchAvailableDecks(): Promise<Deck[] | null> {
+  try {
+    const db = await loadDatabase();
+    if (!db) {
+      logger.error('Failed to load database');
+      return null;
+    }
+    const decks: Deck[] = [{ id: APP_SETTINGS.DEFAULT_DECK_ID, name: 'All decks', lang: 'all' }];
+    const decksResult = db.exec(DECKS_QUERY);
+    if (decksResult.length > 0 && decksResult[0].values.length > 0) {
+      decksResult[0].values.forEach((row: any) => {
+        decks.push({ id: String(row[0]), name: String(row[1]), lang: String(row[2]) });
+      });
+    }
+    logger.debug('Available decks:', decks);
+    return decks;
+  }
+  catch (error) {
+    logger.error('Error fetching available decks:', error);
+    return null;
+  }
 }
 
 export async function fetchWordStats(

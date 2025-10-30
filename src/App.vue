@@ -16,6 +16,7 @@ import ActionSheet from "./components/ActionSheet.vue";
 import FloatingButton from "./components/FloatingButton.vue";
 
 import { watch } from "vue";
+import { fetchAvailableDecks } from "./utils/database";
 
 const appStore = useAppStore();
 const cardsStore = useCardsStore();
@@ -26,6 +27,16 @@ const moveMode = ref(cardsStore.isMoveModeActive);
 const layout = ref<Layout>(cardsStore.layout);
 const addCardDropdown = ref(false);
 const canAddCard = computed(() => cardsStore.cards.some((c) => !c.visible));
+const deckSelectorDropdown = ref(false);
+const deckSelectorOptions = computed(() =>
+  appStore.availableDecks
+    .filter((deck) => deck.lang === appStore.language || deck.lang === 'all')
+    .map((deck) => ({
+      id: deck.id,
+      label: deck.name,
+      selected: deck.id === appStore.selectedDeckId,
+    }))
+);
 
 const hiddenCardOptions = computed(() => {
   return cardsStore.cards
@@ -85,9 +96,12 @@ const cardComponents: Record<string, any> = {
   StudyStatistics,
 };
 
-watch(() => cardsStore.isMoveModeActive, (value) => {
-  moveMode.value = value;
-});
+watch(
+  () => cardsStore.isMoveModeActive,
+  (value) => {
+    moveMode.value = value;
+  }
+);
 
 function setMoveMode(value: boolean) {
   cardsStore.setMoveMode(value);
@@ -109,6 +123,18 @@ function undoLayout() {
 
 function toggleAddCardDropdown() {
   addCardDropdown.value = !addCardDropdown.value;
+}
+
+function toggleDeckSelectorDropdown() {
+  deckSelectorDropdown.value = !deckSelectorDropdown.value;
+}
+
+function handleDeckSelect(deckId: string) {
+  if (deckId !== appStore.selectedDeckId) {
+    appStore.setSelectedDeckId(deckId);
+    logger.debug(`Deck selected: ${deckId}`);
+  }
+  deckSelectorDropdown.value = false;
 }
 
 onMounted(() => {
@@ -143,6 +169,11 @@ onMounted(() => {
     appStore.setComponentHash(componentHash);
   }
   logger.debug(`Component hash: ${componentHash}`);
+  fetchAvailableDecks().then((decks) => {
+    if (decks) {
+      appStore.setAvailableDecks(decks);
+    }
+  });
 });
 
 onUnmounted(() => {
@@ -179,6 +210,44 @@ watch(
 <template>
   <div class="MCS_wrapper">
     <div style="margin-bottom: 12px; display: flex; gap: 12px">
+      <FloatingButton
+        :[componentHash]="true"
+        label="Deck selector"
+        :customClass="'deck-selector'"
+        :bottom="72"
+        :left="24"
+        @click="toggleDeckSelectorDropdown"
+      >
+        <template #icon>
+          <div class="UiIcon" style="width: 24px">
+            <div class="UiSvg__inner" style="margin: 0; font-size: 24px">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 25 24"
+                role="img"
+              >
+                <path
+                  fill="currentColor"
+                  fill-rule="evenodd"
+                  d="M14.888 1.335a4.25 4.25 0 0 0-5.51 2.4l-.326.826H6.7a4.25 4.25 0 0 0-4.25 4.25v10a4.25 4.25 0 0 0 4.25 4.25h6a4.24 4.24 0 0 0 3.431-1.742 3.64 3.64 0 0 0 2.801-2.261l3.94-10.017a4.25 4.25 0 0 0-2.4-5.51zm2.062 15.932 3.595-9.14a1.75 1.75 0 0 0-.988-2.27l-5.584-2.196a1.75 1.75 0 0 0-2.231.9h.958a4.25 4.25 0 0 1 4.25 4.25zm-12-8.456c0-.967.784-1.75 1.75-1.75h6c.966 0 1.75.783 1.75 1.75v10a1.75 1.75 0 0 1-1.75 1.75h-6a1.75 1.75 0 0 1-1.75-1.75z"
+                  clip-rule="evenodd"
+                ></path>
+              </svg>
+            </div>
+          </div>
+        </template>
+      </FloatingButton>
+      <ActionSheet
+        v-if="deckSelectorDropdown"
+        class="MCS__deck-selector-action-sheet"
+        :actions="
+          deckSelectorOptions
+        "
+        :disable-icons="true"
+        @select="handleDeckSelect($event.action.id)"
+      >
+      </ActionSheet>
       <FloatingButton
         :[componentHash]="true"
         :label="moveMode ? 'Exit Move Mode' : 'Enter Move Mode'"
@@ -403,6 +472,13 @@ watch(
   position: fixed;
   bottom: 24px;
   left: 120px;
+  z-index: 1000;
+}
+
+.MCS__deck-selector-action-sheet {
+  position: fixed;
+  bottom: 120px;
+  left: 24px;
   z-index: 1000;
 }
 

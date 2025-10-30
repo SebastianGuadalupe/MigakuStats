@@ -25,9 +25,9 @@ export const WORD_QUERY_WITH_DECK = `
   ) as w`;
 
 export const DECKS_QUERY = `
-  SELECT id, name 
+  SELECT id, name, lang 
   FROM deck 
-  WHERE lang = ? AND del = 0
+  WHERE del = 0
   ORDER BY name;`;
 
 export const DUE_QUERY = `
