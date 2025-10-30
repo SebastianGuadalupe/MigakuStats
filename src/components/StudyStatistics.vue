@@ -141,7 +141,57 @@ function updateMenuSettings(newVals: any) {
           </div>
         </div>
       </template>
-      <template v-else-if="isLoading"><span>Loading…</span></template>
+      <template v-else-if="isLoading">
+        <h4 v-if="visibility.percGroup && (visibility.daysStudiedPercent || visibility.passRate)" :[componentHash]="true" class="UiTypo UiTypo__heading4 -heading">Percentages</h4>
+        <div v-if="visibility.percGroup && (visibility.daysStudiedPercent || visibility.passRate)" class="MCS__study-grid">
+          <div v-if="visibility.percGroup && visibility.daysStudiedPercent" class="MCS__stat-box">
+            <span class="UiSkeleton" style="width: 60%; height: 28px; border-radius: 8px"></span>
+            <span class="UiSkeleton" style="width: 70%; height: 14px; margin-top: 8px; border-radius: 8px"></span>
+          </div>
+          <div v-if="visibility.percGroup && visibility.passRate" class="MCS__stat-box">
+            <span class="UiSkeleton" style="width: 60%; height: 28px; border-radius: 8px"></span>
+            <span class="UiSkeleton" style="width: 70%; height: 14px; margin-top: 8px; border-radius: 8px"></span>
+          </div>
+        </div>
+        <h4 v-if="visibility.totalsGroup && (visibility.totalReviews || visibility.totalCardsAdded || visibility.totalNewCards || visibility.totalCardsLearned)" :[componentHash]="true" class="UiTypo UiTypo__heading4 -heading">Totals</h4>
+        <div v-if="visibility.totalsGroup && (visibility.totalReviews || visibility.totalCardsAdded || visibility.totalNewCards || visibility.totalCardsLearned)" class="MCS__study-grid">
+          <div v-if="visibility.totalsGroup && visibility.totalReviews" class="MCS__stat-box">
+            <span class="UiSkeleton" style="width: 70%; height: 24px; border-radius: 8px"></span>
+            <span class="UiSkeleton" style="width: 60%; height: 14px; margin-top: 8px; border-radius: 8px"></span>
+          </div>
+          <div v-if="visibility.totalsGroup && visibility.totalCardsAdded" class="MCS__stat-box">
+            <span class="UiSkeleton" style="width: 70%; height: 24px; border-radius: 8px"></span>
+            <span class="UiSkeleton" style="width: 60%; height: 14px; margin-top: 8px; border-radius: 8px"></span>
+          </div>
+          <div v-if="visibility.totalsGroup && visibility.totalNewCards" class="MCS__stat-box">
+            <span class="UiSkeleton" style="width: 70%; height: 24px; border-radius: 8px"></span>
+            <span class="UiSkeleton" style="width: 60%; height: 14px; margin-top: 8px; border-radius: 8px"></span>
+          </div>
+          <div v-if="visibility.totalsGroup && visibility.totalCardsLearned" class="MCS__stat-box">
+            <span class="UiSkeleton" style="width: 70%; height: 24px; border-radius: 8px"></span>
+            <span class="UiSkeleton" style="width: 60%; height: 14px; margin-top: 8px; border-radius: 8px"></span>
+          </div>
+        </div>
+        <h4 v-if="visibility.avgsGroup && (visibility.avgReviewsPerDay || visibility.cardsAddedPerDay || visibility.newCardsPerDay || visibility.cardsLearnedPerDay)" :[componentHash]="true" class="UiTypo UiTypo__heading4 -heading">Averages</h4>
+        <div v-if="visibility.avgsGroup && (visibility.avgReviewsPerDay || visibility.cardsAddedPerDay || visibility.newCardsPerDay || visibility.cardsLearnedPerDay)" class="MCS__study-grid">
+          <div v-if="visibility.avgsGroup && visibility.avgReviewsPerDay" class="MCS__stat-box">
+            <span class="UiSkeleton" style="width: 60%; height: 24px; border-radius: 8px"></span>
+            <span class="UiSkeleton" style="width: 70%; height: 14px; margin-top: 8px; border-radius: 8px"></span>
+          </div>
+          <div v-if="visibility.avgsGroup && visibility.cardsAddedPerDay" class="MCS__stat-box">
+            <span class="UiSkeleton" style="width: 60%; height: 24px; border-radius: 8px"></span>
+            <span class="UiSkeleton" style="width: 70%; height: 14px; margin-top: 8px; border-radius: 8px"></span>
+          </div>
+          <div v-if="visibility.avgsGroup && visibility.newCardsPerDay" class="MCS__stat-box">
+            <span class="UiSkeleton" style="width: 60%; height: 24px; border-radius: 8px"></span>
+            <span class="UiSkeleton" style="width: 70%; height: 14px; margin-top: 8px; border-radius: 8px"></span>
+          </div>
+          <div v-if="visibility.avgsGroup && visibility.cardsLearnedPerDay" class="MCS__stat-box">
+            <span class="UiSkeleton" style="width: 60%; height: 24px; border-radius: 8px"></span>
+            <span class="UiSkeleton" style="width: 70%; height: 14px; margin-top: 8px; border-radius: 8px"></span>
+          </div>
+        </div>
+      </template>
       <template v-else-if="error"><span>{{ error }}</span></template>
       <template v-else><span>Could not load study statistics.</span></template>
 
