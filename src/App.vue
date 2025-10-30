@@ -10,6 +10,7 @@ import WordCount from "./components/WordCount.vue";
 import NativeStats from "./components/NativeStats.vue";
 import CardsDue from "./components/CardsDue.vue";
 import ReviewHistory from "./components/ReviewHistory.vue";
+import ReviewIntervals from "./components/ReviewIntervals.vue";
 import ActionSheet from "./components/ActionSheet.vue";
 import FloatingButton from "./components/FloatingButton.vue";
 
@@ -44,6 +45,8 @@ function getCardLabel(cardId: string) {
       return "Cards due";
     case "ReviewHistory":
       return "Review history";
+    case "ReviewIntervals":
+      return "Review intervals";
     default:
       return cardId;
   }
@@ -75,6 +78,7 @@ const cardComponents: Record<string, any> = {
   WordCount,
   CardsDue,
   ReviewHistory,
+  ReviewIntervals,
 };
 
 watch(() => cardsStore.isMoveModeActive, (value) => {
