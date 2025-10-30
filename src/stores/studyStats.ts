@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { ref, watch } from "vue";
-import { fetchStudyStats, StudyStats, reloadDatabase } from "../utils/database";
+import { fetchStudyStats, reloadDatabase } from "../utils/database";
+import type { StudyStats } from "../types/Database";
 import type { PeriodId } from "./reviewHistory";
 
 const STORAGE_KEY = "migaku-studyStats";

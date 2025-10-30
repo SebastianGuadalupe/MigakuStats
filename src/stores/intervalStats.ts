@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
-import { fetchIntervalStats, IntervalStats, reloadDatabase } from '../utils/database';
+import { fetchIntervalStats, reloadDatabase } from '../utils/database';
+import type { IntervalStats } from '../types/Database';
 
 const STORAGE_KEY = 'migaku-intervalStats';
 const SETTINGS_KEY = 'migaku-intervalStats-settings';
