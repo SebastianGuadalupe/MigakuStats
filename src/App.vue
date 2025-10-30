@@ -11,6 +11,7 @@ import NativeStats from "./components/NativeStats.vue";
 import CardsDue from "./components/CardsDue.vue";
 import ReviewHistory from "./components/ReviewHistory.vue";
 import ReviewIntervals from "./components/ReviewIntervals.vue";
+import StudyStatistics from "./components/StudyStatistics.vue";
 import ActionSheet from "./components/ActionSheet.vue";
 import FloatingButton from "./components/FloatingButton.vue";
 
@@ -47,6 +48,8 @@ function getCardLabel(cardId: string) {
       return "Review history";
     case "ReviewIntervals":
       return "Review intervals";
+    case "StudyStatistics":
+      return "Study statistics";
     default:
       return cardId;
   }
@@ -79,6 +82,7 @@ const cardComponents: Record<string, any> = {
   CardsDue,
   ReviewHistory,
   ReviewIntervals,
+  StudyStatistics,
 };
 
 watch(() => cardsStore.isMoveModeActive, (value) => {

@@ -2,7 +2,7 @@ import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
 import pako from 'pako';
 import { logger } from './logger';
 import { DB_CONFIG, APP_SETTINGS, CHART_CONFIG } from './constants';
-import { WORD_QUERY, WORD_QUERY_WITH_DECK, DUE_QUERY, CURRENT_DATE_QUERY, REVIEW_HISTORY_QUERY, INTERVAL_QUERY } from './sql-queries';
+import { WORD_QUERY, WORD_QUERY_WITH_DECK, DUE_QUERY, CURRENT_DATE_QUERY, REVIEW_HISTORY_QUERY, INTERVAL_QUERY, STUDY_STATS_QUERY, PASS_RATE_QUERY, NEW_CARDS_QUERY, CARDS_ADDED_QUERY, CARDS_LEARNED_QUERY, TOTAL_NEW_CARDS_QUERY, CARDS_LEARNED_PER_DAY_QUERY } from './sql-queries';
 import { Grouping, PeriodId } from '../stores/reviewHistory';
 
 interface DatabaseState {
@@ -262,6 +262,21 @@ export interface IntervalStats {
   counts: number[];
 }
 
+export interface StudyStats {
+  days_studied: number;
+  days_studied_percent: number;
+  total_reviews: number;
+  avg_reviews_per_calendar_day: number;
+  period_days: number;
+  pass_rate: number;
+  new_cards_per_day: number;
+  total_new_cards: number;
+  total_cards_added: number;
+  cards_added_per_day: number;
+  total_cards_learned: number;
+  cards_learned_per_day: number;
+}
+
 export async function fetchDueStats(
   language: string,
   deckId: string = APP_SETTINGS.DEFAULT_DECK_ID,
@@ -429,6 +444,162 @@ export async function fetchIntervalStats(
     return { labels, counts };
   } catch (error) {
     logger.error('Error fetching interval stats:', error);
+    return null;
+  }
+}
+
+export async function fetchStudyStats(
+  language: string,
+  deckId: string = APP_SETTINGS.DEFAULT_DECK_ID,
+  periodId: PeriodId = '1 Month'
+): Promise<StudyStats | null> {
+  try {
+    const db = await loadDatabase();
+    if (!db) return null;
+
+    // Establish current day number from config start
+    let currentDate = new Date();
+    currentDate.setHours(0, 0, 0, 0);
+    const startDate = new Date(CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY);
+    let currentDayNumber = Math.floor((currentDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+
+    // Determine period days and startDayNumber
+    let periodDays: number;
+    let startDayNumber: number;
+    let earliestReviewDayForAllTime: number | null = null;
+    if (periodId === 'All time') {
+      let earliestReviewQuery = `SELECT MIN(r.day) as minDay FROM review r JOIN card c ON r.cardId = c.id JOIN card_type ct ON c.cardTypeId = ct.id WHERE ct.lang = ? AND r.del = 0`;
+      const earliestParams: (string|number)[] = [language];
+      if (deckId !== APP_SETTINGS.DEFAULT_DECK_ID) {
+        earliestReviewQuery += ' AND c.deckId = ?';
+        earliestParams.push(deckId);
+      }
+      const earliestRes = db.exec(earliestReviewQuery, earliestParams);
+      if (earliestRes.length > 0 && earliestRes[0].values.length > 0 && earliestRes[0].values[0][0] !== null) {
+        earliestReviewDayForAllTime = Number(earliestRes[0].values[0][0]);
+        periodDays = currentDayNumber - earliestReviewDayForAllTime + 1;
+        startDayNumber = earliestReviewDayForAllTime;
+      } else {
+        periodDays = currentDayNumber + 1;
+        startDayNumber = 0;
+      }
+    } else {
+      const months = periodId.includes("Year")
+        ? parseInt(periodId.replace(' Year', '').replace('Years',''), 10) * 12 || 12
+        : parseInt(periodId.replace(' Months', '').replace('Month', '').replace('Months',''), 10) || 1;
+      const today = new Date(startDate);
+      today.setDate(today.getDate() + currentDayNumber);
+      const periodStartDate = new Date(today);
+      periodStartDate.setMonth(today.getMonth() - months);
+      periodDays = Math.round((today.getTime() - periodStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+      startDayNumber = currentDayNumber - periodDays + 1;
+    }
+
+    // Queries (reuse centralized ones with deck filter modifications)
+    let studyQuery = STUDY_STATS_QUERY;
+    let studyParams: (string|number)[] = [language, startDayNumber, currentDayNumber];
+    if (deckId !== APP_SETTINGS.DEFAULT_DECK_ID) {
+      studyQuery = studyQuery.replace('AND r.del = 0', 'AND c.deckId = ? AND r.del = 0');
+      studyParams.push(deckId);
+    }
+
+    let passRateQuery = PASS_RATE_QUERY;
+    let passRateParams: (string|number)[] = [language, startDayNumber, currentDayNumber];
+    if (deckId !== APP_SETTINGS.DEFAULT_DECK_ID) {
+      passRateQuery = passRateQuery.replace('AND r.del = 0', 'AND c.deckId = ? AND r.del = 0');
+      passRateParams.push(deckId);
+    }
+
+    let newCardsQuery = NEW_CARDS_QUERY;
+    let newCardsParams: (string|number)[] = [language, startDayNumber, currentDayNumber];
+    if (deckId !== APP_SETTINGS.DEFAULT_DECK_ID) {
+      newCardsQuery = newCardsQuery.replace('AND r.del = 0', 'AND c.deckId = ? AND r.del = 0');
+      newCardsParams.push(deckId);
+    }
+
+    let cardsAddedQuery = CARDS_ADDED_QUERY;
+    const startDayDate = new Date(startDate);
+    startDayDate.setDate(startDate.getDate() + startDayNumber);
+    startDayDate.setHours(0,0,0,0);
+    let cardsAddedParams: (string|number)[] = [language, startDayDate.getTime(), new Date().getTime()];
+    if (deckId !== APP_SETTINGS.DEFAULT_DECK_ID) {
+      cardsAddedQuery = cardsAddedQuery.replace('AND c.del = 0', 'AND c.deckId = ? AND c.del = 0');
+      cardsAddedParams.push(deckId);
+    }
+
+    let cardsLearnedQuery = CARDS_LEARNED_QUERY;
+    let cardsLearnedParams: (string|number)[] = [language, startDayNumber, currentDayNumber];
+    if (deckId !== APP_SETTINGS.DEFAULT_DECK_ID) {
+      cardsLearnedQuery = cardsLearnedQuery.replace('AND r.del = 0', 'AND c.deckId = ? AND r.del = 0');
+      cardsLearnedParams.push(deckId);
+    }
+
+    let totalNewCardsQuery = TOTAL_NEW_CARDS_QUERY;
+    let totalNewCardsParams: (string|number)[] = [language, startDayNumber, currentDayNumber];
+    if (deckId !== APP_SETTINGS.DEFAULT_DECK_ID) {
+      totalNewCardsQuery = totalNewCardsQuery.replace('AND r.del = 0', 'AND c.deckId = ? AND r.del = 0');
+      totalNewCardsParams.push(deckId);
+    }
+
+    let cardsLearnedPerDayQuery = CARDS_LEARNED_PER_DAY_QUERY;
+    let cardsLearnedPerDayParams: (string|number)[] = [language, startDayNumber, currentDayNumber];
+    if (deckId !== APP_SETTINGS.DEFAULT_DECK_ID) {
+      cardsLearnedPerDayQuery = cardsLearnedPerDayQuery.replace('AND c.interval >= 20', 'AND c.deckId = ? AND c.interval >= 20');
+      cardsLearnedPerDayParams.push(deckId);
+    }
+
+    const studyResults = db.exec(studyQuery, studyParams);
+    const passRateResults = db.exec(passRateQuery, passRateParams);
+    const newCardsResults = db.exec(newCardsQuery, newCardsParams);
+    const cardsAddedResults = db.exec(cardsAddedQuery, cardsAddedParams);
+    const cardsLearnedResults = db.exec(cardsLearnedQuery, cardsLearnedParams);
+    const totalNewCardsResults = db.exec(totalNewCardsQuery, totalNewCardsParams);
+    const cardsLearnedPerDayResults = db.exec(cardsLearnedPerDayQuery, cardsLearnedPerDayParams);
+
+    const days_studied = Number(studyResults?.[0]?.values?.[0]?.[0] ?? 0);
+    const total_reviews = Number(studyResults?.[0]?.values?.[0]?.[1] ?? 0);
+
+    let denominator: number;
+    if (periodId === 'All time' && days_studied > 0 && earliestReviewDayForAllTime !== null) {
+      denominator = currentDayNumber - earliestReviewDayForAllTime + 1;
+    } else {
+      denominator = Math.max(1, periodDays);
+    }
+    const days_studied_percent = Math.round((days_studied / denominator) * 100);
+
+    let pass_rate = 0;
+    if (passRateResults?.[0]?.values?.length) {
+      const successful_reviews = Number(passRateResults[0].values[0][0] ?? 0);
+      const failed_reviews = Number(passRateResults[0].values[0][1] ?? 0);
+      const total_answered = successful_reviews + failed_reviews;
+      pass_rate = total_answered > 0 ? Math.round(((successful_reviews - failed_reviews) / successful_reviews) * 100) : 0;
+    }
+
+    const new_cards_reviewed = Number(newCardsResults?.[0]?.values?.[0]?.[0] ?? 0);
+    const new_cards_per_day = Math.round(((new_cards_reviewed / Math.max(1, periodDays)) * 10)) / 10;
+    const total_cards_added = Number(cardsAddedResults?.[0]?.values?.[0]?.[0] ?? 0);
+    const cards_added_per_day = total_cards_added > 0 ? Math.round(((total_cards_added / Math.max(1, periodDays)) * 10)) / 10 : 0;
+    const total_cards_learned = Number(cardsLearnedResults?.[0]?.values?.[0]?.[0] ?? 0);
+    const total_new_cards = Number(totalNewCardsResults?.[0]?.values?.[0]?.[0] ?? 0);
+    const cards_learned_per_day = Number(cardsLearnedPerDayResults?.[0]?.values?.[0]?.[0] ?? 0);
+    const avg_reviews_per_calendar_day = total_reviews > 0 ? Math.round(((total_reviews / Math.max(1, periodDays)) * 10)) / 10 : 0;
+
+    return {
+      days_studied,
+      days_studied_percent,
+      total_reviews,
+      avg_reviews_per_calendar_day,
+      period_days: periodDays,
+      pass_rate,
+      new_cards_per_day,
+      total_new_cards,
+      total_cards_added,
+      cards_added_per_day,
+      total_cards_learned,
+      cards_learned_per_day,
+    };
+  } catch (error) {
+    logger.error('Error fetching study stats:', error);
     return null;
   }
 }

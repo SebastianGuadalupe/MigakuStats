@@ -113,6 +113,7 @@ const cardsDueMenuSettings = [
     type: "dropdown" as const,
     options: ["1 Month", "2 Months", "3 Months", "6 Months", "1 Year", "All time"],
     value: periodId.value,
+    displayPrefix: 'Next ',
   },
 ];
 

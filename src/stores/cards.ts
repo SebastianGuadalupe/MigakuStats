@@ -13,7 +13,8 @@ const DEFAULT_CARDS: CardState[] = [
   { id: 'WordCount', visible: true, item: { i: 'WordCount', x: 6, y: 0, w: 6, h: 5, minW: 4, maxW: 12, minH: 5, maxH: 8 } },
   { id: 'CardsDue', visible: true, item: { i: 'CardsDue', x: 6, y: 5, w: 6, h: 6, minW: 4, maxW: 12, minH: 5, maxH: 8 } },
   { id: 'ReviewHistory', visible: true, item: { i: 'ReviewHistory', x: 0, y: 17, w: 6, h: 6, minW: 4, maxW: 12, minH: 5, maxH: 8 } },
-  { id: 'ReviewIntervals', visible: false, item: { i: 'ReviewIntervals', x: 6, y: 11, w: 6, h: 6, minW: 4, maxW: 12, minH: 5, maxH: 8 } }
+  { id: 'ReviewIntervals', visible: true, item: { i: 'ReviewIntervals', x: 6, y: 11, w: 6, h: 6, minW: 4, maxW: 12, minH: 5, maxH: 8 } },
+  { id: 'StudyStatistics', visible: true, item: { i: 'StudyStatistics', x: 0, y: 23, w: 12, h: 6, minW: 4, maxW: 12, minH: 5, maxH: 20 } }
 ];
 
 export const useCardsStore = defineStore('cards', () => {
