@@ -437,7 +437,9 @@ watch(
               </FloatingButton>
             </div>
           </div>
-          <component :is="renderCardComponent(String(item.i))" />
+          <div class="MCS__card-content" :class="{ '-no-events': moveMode }">
+            <component :is="renderCardComponent(String(item.i))" />
+          </div>
         </div>
       </template>
     </GridLayout>
@@ -452,6 +454,15 @@ watch(
 
 .MCS__stats-card {
   height: 100%;
+}
+
+.MCS__card-content {
+  width: 100%;
+  height: 100%;
+  max-width: 1080px;
+}
+.MCS__card-content.-no-events {
+  pointer-events: none;
 }
 
 .MCS__shuffle-button {
