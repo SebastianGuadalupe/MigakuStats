@@ -2,7 +2,7 @@ import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
 import pako from 'pako';
 import { logger } from './logger';
 import { DB_CONFIG, APP_SETTINGS, CHART_CONFIG } from './constants';
-import { WORD_QUERY, WORD_QUERY_WITH_DECK, DUE_QUERY, CURRENT_DATE_QUERY, REVIEW_HISTORY_QUERY } from './sql-queries';
+import { WORD_QUERY, WORD_QUERY_WITH_DECK, DUE_QUERY, CURRENT_DATE_QUERY, REVIEW_HISTORY_QUERY, INTERVAL_QUERY } from './sql-queries';
 import { Grouping, PeriodId } from '../stores/reviewHistory';
 
 interface DatabaseState {
@@ -257,6 +257,11 @@ export interface DueStats {
   learningCounts?: number[];
 }
 
+export interface IntervalStats {
+  labels: string[];
+  counts: number[];
+}
+
 export async function fetchDueStats(
   language: string,
   deckId: string = APP_SETTINGS.DEFAULT_DECK_ID,
@@ -363,6 +368,67 @@ export async function fetchDueStats(
     return { labels, counts, knownCounts, learningCounts };
   } catch (error) {
     logger.error('Error fetching due stats:', error);
+    return null;
+  }
+}
+
+export async function fetchIntervalStats(
+  language: string,
+  deckId: string = APP_SETTINGS.DEFAULT_DECK_ID,
+  percentileId: '50th' | '75th' | '95th' | '100th' = '75th'
+): Promise<IntervalStats | null> {
+  try {
+    const db = await loadDatabase();
+    if (!db) return null;
+
+    let intervalQuery = INTERVAL_QUERY;
+    const params: (string|number)[] = [language];
+    if (deckId !== APP_SETTINGS.DEFAULT_DECK_ID) {
+      intervalQuery = intervalQuery.replace(
+        'WHERE ct.lang = ? AND c.del = 0 AND c.interval > 0',
+        'WHERE ct.lang = ? AND c.del = 0 AND c.interval > 0 AND c.deckId = ?'
+      );
+      params.push(deckId);
+    }
+
+    const results = db.exec(intervalQuery, params);
+    if (results.length === 0 || results[0].values.length === 0) return null;
+
+    const intervalMap = new Map<number, number>();
+    let maxInterval = 0;
+    let totalCards = 0;
+    for (const row of results[0].values as any[]) {
+      const interval = Math.round(Number(row[0]));
+      const count = Number(row[1]);
+      intervalMap.set(interval, count);
+      maxInterval = Math.max(maxInterval, interval);
+      totalCards += count;
+    }
+
+    const percentileNum = parseInt(percentileId.replace('th',''), 10);
+    const cutoffPercentile = isFinite(percentileNum) ? percentileNum / 100 : 0.75;
+    let cumulativeCount = 0;
+    let cutoffInterval = maxInterval;
+    const sortedIntervals = Array.from(intervalMap.keys()).sort((a, b) => a - b);
+    for (const interval of sortedIntervals) {
+      cumulativeCount += intervalMap.get(interval) || 0;
+      const pc = totalCards > 0 ? cumulativeCount / totalCards : 1;
+      if (pc >= cutoffPercentile) {
+        cutoffInterval = interval;
+        break;
+      }
+    }
+
+    const labels: string[] = [];
+    const counts: number[] = [];
+    for (let i = 1; i <= cutoffInterval; i++) {
+      labels.push(i === 1 ? '1 day' : `${i} days`);
+      counts.push(intervalMap.get(i) ?? 0);
+    }
+
+    return { labels, counts };
+  } catch (error) {
+    logger.error('Error fetching interval stats:', error);
     return null;
   }
 }
