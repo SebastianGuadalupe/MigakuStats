@@ -229,6 +229,22 @@ watch(
   },
   { immediate: true }
 );
+
+watch(
+  () => cardsStore.cards.map((c) => ({ id: c.id, visible: c.visible })),
+  (cards) => {
+    for (const { id, visible } of cards) {
+      if (!cardComponents[id]) {
+        const selector = `[custom-stat="${id.replace(/"/g, '\\"')}" ]`;
+        const node = document.querySelector(selector) as HTMLElement | null;
+        if (node) {
+          node.style.display = visible ? "" : "none";
+        }
+      }
+    }
+  },
+  { immediate: true, deep: true }
+);
 </script>
 
 <template>
