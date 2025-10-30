@@ -23,6 +23,7 @@ import {
 import { THEME_CONFIGS } from "../utils/theme";
 import { CHART_CONFIG } from "../utils/constants";
 import { useCardsStore } from "../stores/cards";
+import FloatingMenuButton from "./FloatingMenuButton.vue";
 
 ChartJS.register(
   BarElement,
@@ -48,6 +49,7 @@ const isLoading = computed(() => dueStatsStore.isLoading);
 const error = computed(() => dueStatsStore.error);
 const language = computed(() => appStore.language);
 const selectedDeckId = computed(() => appStore.selectedDeckId);
+const periodId = computed(() => dueStatsStore.periodId);
 
 const cardsDueContainer = ref<HTMLElement | null>(null);
 const shouldHideDates = ref(false);
@@ -93,16 +95,34 @@ watch(
 );
 
 watch(
-  [language, selectedDeckId],
-  async ([lang, deckId], _prev, onCleanup) => {
+  [language, selectedDeckId, periodId],
+  async ([lang, deckId, period], _prev, onCleanup) => {
     if (!lang) return;
-    const fetchPromise = dueStatsStore.fetchDueStatsIfNeeded(lang, deckId);
+    const fetchPromise = dueStatsStore.fetchDueStatsIfNeeded(lang, deckId, period);
     let cancelled = false;
     onCleanup(() => (cancelled = true));
     await fetchPromise;
     if (cancelled) return;
   }
 );
+
+const cardsDueMenuSettings = [
+  {
+    key: "periodId",
+    label: "Period",
+    type: "dropdown" as const,
+    options: ["1 Month", "2 Months", "3 Months", "6 Months", "1 Year", "All time"],
+    value: periodId.value,
+  },
+];
+
+const menuSettingValues = computed(() => ({
+  periodId: periodId.value,
+}));
+
+function updateMenuSettings(newVals: { periodId: "1 Month" | "2 Months" | "3 Months" | "6 Months" | "1 Year" | "All time" }) {
+  dueStatsStore.setPeriod(newVals.periodId);
+}
 
 const chartData = computed(() => {
   if (!dueStats.value || !dueStats.value.labels || !dueStats.value.counts) {
@@ -340,6 +360,13 @@ const chartOptions = computed(() => {
       <template v-else>
         <span>Could not load due card data.</span>
       </template>
+      <FloatingMenuButton
+        v-if="!cardsStore.isMoveModeActive"
+        :settings="cardsDueMenuSettings"
+        :modelValue="menuSettingValues"
+        @update:modelValue="updateMenuSettings"
+        :buttonPos="{ top: 24, right: 24 }"
+      />
     </div>
   </div>
 </template>

@@ -128,7 +128,7 @@ onBeforeUnmount(() => {
       style="max-height: 300px;"
       :style="{ display: isDropdownOpen ? 'block' : 'none' }"
     >
-      <ul class="multiselect__content" role="listbox" style="display: inline-block;">
+      <ul class="multiselect__content" role="listbox" style="z-index: 1000;">
         <li class="multiselect__element" role="option" v-for="item in items" :key="getItemKey(item)">
           <span
             class="multiselect__option"

@@ -2,14 +2,13 @@ import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import App from './App.vue';
 import { waitForElement } from './utils/observers';
-import { SELECTORS } from './utils/constants';
+import { SELECTORS, ROUTES } from './utils/constants';
 import { logger } from './utils/logger';
 import { useAppStore } from './stores/app';
 // @ts-ignore
 import { GM_addStyle } from 'monkey';
 
 const VUE_CONTAINER_ID = SELECTORS.VUE_CONTAINER_ID;
-const STATS_ROUTE = '/statistic';
 
 let vueAppInstance: ReturnType<typeof createApp> | null = null;
 let vueContainer: HTMLElement | null = null;
@@ -97,7 +96,7 @@ function unmountApp() {
 }
 
 function handleRouteChange() {
-  if (window.location.pathname === STATS_ROUTE) {
+  if (window.location.pathname === ROUTES.STATS_ROUTE) {
     mountApp();
   } else {
     unmountApp();
