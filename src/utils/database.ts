@@ -259,7 +259,8 @@ export interface DueStats {
 
 export async function fetchDueStats(
   language: string,
-  deckId: string = APP_SETTINGS.DEFAULT_DECK_ID
+  deckId: string = APP_SETTINGS.DEFAULT_DECK_ID,
+  periodId: PeriodId = "1 Month" as const
 ): Promise<DueStats | null> {
   try {
     const db = await loadDatabase();
@@ -281,8 +282,39 @@ export async function fetchDueStats(
     }
     const chartStartDate = new Date(2020, 0, 1, 0, 0, 0, 0);
     currentDayNumber = Math.floor((currentDate.getTime() - chartStartDate.getTime()) / (1000 * 60 * 60 * 24));
-    const forecastDays = 30;
-    const endDayNumber = currentDayNumber + (forecastDays - 1);
+    let forecastDays: number;
+    let endDayNumber: number;
+    if (periodId === 'All time') {
+      forecastDays = 3650;
+      let maxDueQuery = `SELECT MAX(due) as maxDue FROM card c\n                          JOIN card_type ct ON c.cardTypeId = ct.id\n                          WHERE ct.lang = ? AND c.due >= ? AND c.del = 0`;
+      const maxDueParams: (string|number)[] = [language, currentDayNumber];
+      if (deckId !== APP_SETTINGS.DEFAULT_DECK_ID) {
+        maxDueQuery += ' AND c.deckId = ?';
+        maxDueParams.push(deckId);
+      }
+      let maxDue: number | null = null;
+      try {
+        const maxDueResults = db.exec(maxDueQuery, maxDueParams);
+        if (maxDueResults.length > 0 && maxDueResults[0].values.length > 0 && maxDueResults[0].values[0][0] !== null) {
+          maxDue = Number(maxDueResults[0].values[0][0]);
+        }
+      } catch (err) {
+        logger.warn('MAX(due) query failed, falling back to default range', err);
+      }
+      endDayNumber = typeof maxDue === 'number' ? maxDue : currentDayNumber + forecastDays - 1;
+    } else if (periodId === '1 Year') {
+      const endDate = new Date(currentDate);
+      endDate.setFullYear(endDate.getFullYear() + 1);
+      forecastDays = Math.max(1, Math.round((endDate.getTime() - currentDate.getTime()) / (1000 * 60 * 60 * 24)));
+      endDayNumber = currentDayNumber + (forecastDays - 1);
+    } else {
+      const months = parseInt(periodId.replace(' Months', '').replace('Month', '').replace('Months', ''), 10) || 1;
+      const endDate = new Date(currentDate);
+      endDate.setMonth(endDate.getMonth() + months);
+      forecastDays = Math.max(1, Math.round((endDate.getTime() - currentDate.getTime()) / (1000 * 60 * 60 * 24)));
+      endDayNumber = currentDayNumber + (forecastDays - 1);
+    }
+    const actualForecastDays = endDayNumber - currentDayNumber + 1;
     let dueQuery = DUE_QUERY;
     const params: (string|number)[] = [language, currentDayNumber, endDayNumber];
     if (deckId !== APP_SETTINGS.DEFAULT_DECK_ID) {
@@ -292,12 +324,12 @@ export async function fetchDueStats(
     dueQuery += ' GROUP BY due, interval_range ORDER BY due';
     const dueResults = db.exec(dueQuery, params);
     const labels: string[] = [];
-    const knownCounts = new Array(forecastDays).fill(0);
-    const learningCounts = new Array(forecastDays).fill(0);
-    const counts = new Array(forecastDays).fill(0);
+    const knownCounts = new Array(actualForecastDays).fill(0);
+    const learningCounts = new Array(actualForecastDays).fill(0);
+    const counts = new Array(actualForecastDays).fill(0);
     let d = new Date(currentDate);
     d.setDate(d.getDate() - 0);
-    for(let i=0;i<forecastDays;i++) {
+    for(let i=0;i<actualForecastDays;i++) {
       labels.push(d.toLocaleDateString(undefined, {month:'short', day:'numeric', year:'numeric'}));
       d.setDate(d.getDate()+1);
     }
@@ -307,12 +339,26 @@ export async function fetchDueStats(
         const intervalRange = row[1];
         const count = row[2];
         const dayIndex = due - currentDayNumber;
-        if(dayIndex >= 0 && dayIndex < forecastDays) {
+        if(dayIndex >= 0 && dayIndex < actualForecastDays) {
           if(intervalRange === 'learning') learningCounts[dayIndex] += count;
           else if(intervalRange === 'known') knownCounts[dayIndex] += count;
           counts[dayIndex] += count;
         }
       });
+    }
+    if (periodId === 'All time') {
+      let lastNonZeroIndex = counts.length - 1;
+      while (lastNonZeroIndex >= 0 && counts[lastNonZeroIndex] === 0) {
+        lastNonZeroIndex--;
+      }
+      const extraDays = 5;
+      lastNonZeroIndex = Math.min(lastNonZeroIndex + extraDays, counts.length - 1);
+      if (lastNonZeroIndex >= 0) {
+        labels.splice(lastNonZeroIndex + 1);
+        learningCounts.splice(lastNonZeroIndex + 1);
+        knownCounts.splice(lastNonZeroIndex + 1);
+        counts.splice(lastNonZeroIndex + 1);
+      }
     }
     return { labels, counts, knownCounts, learningCounts };
   } catch (error) {

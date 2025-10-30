@@ -52,7 +52,6 @@ function getCardLabel(cardId: string) {
 const addCardDropdownSelection = ref<string | undefined>(undefined);
 
 function handleAddCardSelect(cardId: string) {
-  console.log("handleAddCardSelect", cardId);
   cardsStore.showCard(cardId);
   addCardDropdown.value = false;
   addCardDropdownSelection.value = undefined;

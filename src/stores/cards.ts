@@ -75,7 +75,6 @@ export const useCardsStore = defineStore('cards', () => {
   }
 
   function hideCard(id: string) {
-    console.log('hideCard', id);
     const card = cards.value.find(c => c.id === id);
     if (card) card.visible = false;
   }

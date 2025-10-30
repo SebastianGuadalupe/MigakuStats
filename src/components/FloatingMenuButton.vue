@@ -19,18 +19,51 @@ const emit = defineEmits(['update:modelValue']);
 const isOpen = ref(false);
 const btnRef = ref<HTMLElement|null>(null);
 const wrapperRef = ref<HTMLElement|null>(null);
+const popoverRef = ref<HTMLElement|null>(null);
+const popoverPos = ref<{ top: number; right: number }>({ top: 0, right: 0 });
 
-function useClickOutside(targetRef: any, handler: (e: MouseEvent) => void) {
+function useClickOutside(targetRef: any, handler: (e: MouseEvent) => void, extraRefs: any[] = []) {
   function listener(event: MouseEvent) {
     const el = targetRef.value;
-    if (!el || el.contains(event.target)) return;
+    const isInTarget = el && el.contains(event.target as Node);
+    const isInExtras = extraRefs.some(r => r?.value && r.value.contains(event.target as Node));
+    if (!el || isInTarget || isInExtras) return;
     handler(event);
   }
   onMounted(() => document.addEventListener('mousedown', listener));
   onBeforeUnmount(() => document.removeEventListener('mousedown', listener));
 }
 
-useClickOutside(wrapperRef, () => isOpen.value = false);
+useClickOutside(wrapperRef, () => isOpen.value = false, [popoverRef]);
+
+function computePopoverPosition() {
+  const btn = (btnRef.value as any);
+  const btnEl: HTMLElement | null = btn?.$el ? btn.$el as HTMLElement : (btn as HTMLElement);
+  if (!btnEl) return;
+  const rect = btnEl.getBoundingClientRect();
+  const gap = 12;
+  popoverPos.value = {
+    top: Math.round(rect.top + rect.height + gap),
+    right: Math.round(window.innerWidth - rect.right + (props.buttonPos?.right ?? 24))
+  };
+}
+
+function openMenu() {
+  isOpen.value = !isOpen.value;
+  if (isOpen.value) {
+    computePopoverPosition();
+  }
+}
+
+onMounted(() => {
+  const handler = () => { if (isOpen.value) computePopoverPosition(); };
+  window.addEventListener('resize', handler);
+  window.addEventListener('scroll', handler, true);
+  onBeforeUnmount(() => {
+    window.removeEventListener('resize', handler);
+    window.removeEventListener('scroll', handler, true);
+  });
+});
 
 function updateSetting(key: string, value: any) {
   emit('update:modelValue', { ...props.modelValue, [key]: value });
@@ -47,7 +80,7 @@ function updateSetting(key: string, value: any) {
       :right="props.buttonPos?.right"
       :label="'Open settings menu'"
       :customClass="'MCS__menu-fab'"
-      @click="isOpen = !isOpen"
+      @click="openMenu"
       style="z-index: 1201;"
     >
       <template #icon>
@@ -58,26 +91,29 @@ function updateSetting(key: string, value: any) {
         </svg>
       </template>
     </FloatingButton>
-    <div
-      v-if="isOpen"
-      class="MCS__menu-popover UiActionSheet -desktop"
-      :style="{ minWidth: '220px', position: 'fixed', zIndex: 1200, top: (props.buttonPos?.top ?? 24) + 52 + 'px', right: (props.buttonPos?.right ?? 24) + 'px' }"
-    >
-      <form class="MCS__menu-settings">
-        <div v-for="setting in props.settings" :key="setting.key" class="MCS__menu-setting-row">
-          <label class="MCS__menu-setting-label">{{ setting.label }}:</label>
-          <DropdownMenu
-            v-if="setting.type === 'dropdown'"
-            :items="setting.options?.map(val => ({ id: val, name: val })) ?? []"
-            :modelValue="modelValue[setting.key]"
-            @update:modelValue="val => updateSetting(setting.key, val)"
-            :width="180"
-            :placeholder="'Select an option'"
-          />
-          <div v-else>Not implemented :(</div>
-        </div>
-      </form>
-    </div>
+    <teleport to="body">
+      <div
+        v-if="isOpen"
+        class="MCS__menu-popover UiActionSheet -desktop"
+        ref="popoverRef"
+        :style="{ minWidth: '220px', position: 'fixed', zIndex: 9999, top: popoverPos.top + 'px', right: popoverPos.right + 'px' }"
+      >
+        <form class="MCS__menu-settings">
+          <div v-for="setting in props.settings" :key="setting.key" class="MCS__menu-setting-row">
+            <label class="MCS__menu-setting-label">{{ setting.label }}:</label>
+            <DropdownMenu
+              v-if="setting.type === 'dropdown'"
+              :items="setting.options?.map(val => ({ id: val, name: val })) ?? []"
+              :modelValue="modelValue[setting.key]"
+              @update:modelValue="val => updateSetting(setting.key, val)"
+              :width="180"
+              :placeholder="'Select an option'"
+            />
+            <div v-else>Not implemented :(</div>
+          </div>
+        </form>
+      </div>
+    </teleport>
   </div>
 </template>
 
