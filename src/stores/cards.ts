@@ -14,7 +14,7 @@ const DEFAULT_CARDS: CardState[] = [
   { id: 'CardsDue', visible: true, item: { i: 'CardsDue', x: 6, y: 5, w: 6, h: 6, minW: 4, maxW: 12, minH: 5, maxH: 8 } },
   { id: 'ReviewHistory', visible: true, item: { i: 'ReviewHistory', x: 0, y: 17, w: 6, h: 6, minW: 4, maxW: 12, minH: 5, maxH: 8 } },
   { id: 'ReviewIntervals', visible: true, item: { i: 'ReviewIntervals', x: 6, y: 11, w: 6, h: 6, minW: 4, maxW: 12, minH: 5, maxH: 8 } },
-  { id: 'StudyStatistics', visible: true, item: { i: 'StudyStatistics', x: 0, y: 23, w: 12, h: 6, minW: 4, maxW: 12, minH: 5, maxH: 20 } }
+  { id: 'StudyStatistics', visible: true, item: { i: 'StudyStatistics', x: 6, y: 17, w: 6, h: 12, minW: 4, maxW: 12, minH: 5, maxH: 20 } }
 ];
 
 export const useCardsStore = defineStore('cards', () => {
@@ -67,7 +67,7 @@ export const useCardsStore = defineStore('cards', () => {
           x: card.item.x,
           y: card.item.y,
           w: card.item.w,
-          h: card.item.h
+          h: card.item.h,
         }
       }));
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -110,6 +110,34 @@ export const useCardsStore = defineStore('cards', () => {
     isMoveModeActive.value = value;
   }
 
+  function ensureCard(id: string, opts?: Partial<GridItemProps> & { minW?: number; minH?: number, defaultW?: number, defaultH?: number }): void {
+    let card = cards.value.find(c => c.id === id);
+    if (!card) {
+      const minW = opts?.minW ?? 4;
+      const minH = opts?.minH ?? 5;
+      const w = opts?.w ?? opts?.defaultW ?? minW;
+      const h = opts?.h ?? opts?.defaultH ?? minH;
+      const x = opts?.x ?? 0;
+      const y = opts?.y ?? 1000;
+      const item: GridItemProps = {
+        i: id,
+        x,
+        y,
+        w,
+        h,
+        minW,
+        minH,
+      } as any;
+      card = { id, visible: true, item };
+      cards.value.push(card);
+    } else {
+      card.visible = true;
+      if (typeof opts?.minW === 'number') card.item.minW = opts!.minW as any;
+      if (typeof opts?.minH === 'number') card.item.minH = opts!.minH as any;
+    }
+    saveToStorage();
+  }
+
   return {
     cards,
     layout,
@@ -119,6 +147,7 @@ export const useCardsStore = defineStore('cards', () => {
     toggleCardVisibility,
     loadFromStorage,
     updateLayout,
-    setMoveMode
+    setMoveMode,
+    ensureCard
   };
 });

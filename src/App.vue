@@ -12,6 +12,7 @@ import CardsDue from "./components/CardsDue.vue";
 import ReviewHistory from "./components/ReviewHistory.vue";
 import ReviewIntervals from "./components/ReviewIntervals.vue";
 import StudyStatistics from "./components/StudyStatistics.vue";
+import CustomStat from "./components/CustomStat.vue";
 import ActionSheet from "./components/ActionSheet.vue";
 import FloatingButton from "./components/FloatingButton.vue";
 
@@ -174,6 +175,27 @@ onMounted(() => {
       appStore.setAvailableDecks(decks);
     }
   });
+
+  window.setTimeout(() => {
+    try {
+      const nodes = Array.from(document.querySelectorAll('[custom-stat]')) as HTMLElement[];
+      for (const node of nodes) {
+        const id = node.getAttribute('custom-stat');
+        if (!id) continue;
+        const minWAttr = node.getAttribute('minW') || node.getAttribute('minw') || node.getAttribute('data-min-w');
+        const minHAttr = node.getAttribute('minH') || node.getAttribute('minh') || node.getAttribute('data-min-h');
+        const defaultWAttr = node.getAttribute('defaultW') || node.getAttribute('defaultw') || node.getAttribute('data-default-w');
+        const defaultHAttr = node.getAttribute('defaultH') || node.getAttribute('defaulth') || node.getAttribute('data-default-h');
+        const minW = minWAttr ? Number(minWAttr) : undefined;
+        const minH = minHAttr ? Number(minHAttr) : undefined;
+        const defaultW = defaultWAttr ? Number(defaultWAttr) : undefined;
+        const defaultH = defaultHAttr ? Number(defaultHAttr) : undefined;
+        cardsStore.ensureCard(id, { minW, minH, defaultW, defaultH });
+      }
+    } catch (e) {
+      logger.error('Error scanning custom stats:', e);
+    }
+  }, 250);
 });
 
 onUnmounted(() => {
@@ -189,7 +211,9 @@ onUnmounted(() => {
 });
 
 function renderCardComponent(id: string) {
-  return cardComponents[id] || null;
+  if (cardComponents[id]) return cardComponents[id];
+  const hasCustom = !!document.querySelector(`[custom-stat="${id.replace(/"/g, '\\"')}"]`);
+  return hasCustom ? CustomStat : null;
 }
 
 watch(
