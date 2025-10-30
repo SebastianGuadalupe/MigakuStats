@@ -4,7 +4,8 @@ import { defineProps, defineEmits } from 'vue';
 interface ActionSheetItem {
   id: string;
   label: string;
-  icon?: any; // Could be a component or string name
+  icon?: any;
+  selected?: boolean;
 }
 
 withDefaults(defineProps<{
@@ -40,6 +41,7 @@ const emit = defineEmits<{
         :key="idx"
         class="UiActionSheet__item"
         :style="{ borderBottomWidth: idx !== actions.length-1 ? '1px' : 0 }"
+        :class="{ 'selected': action.selected }"
       >
         <button
           type="button"
@@ -63,5 +65,8 @@ const emit = defineEmits<{
   </div>
 </template>
 
-<style scoped>
+<style scoped lang="scss">
+.selected {
+  background-color: var(--grey-5);
+}
 </style>
