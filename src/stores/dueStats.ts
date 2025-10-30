@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
-import { fetchDueStats, DueStats, reloadDatabase } from '../utils/database';
+import { fetchDueStats, reloadDatabase } from '../utils/database';
+import type { DueStats } from '../types/Database';
 import type { PeriodId } from './reviewHistory';
 const STORAGE_KEY = 'migaku-dueStats';
 const SETTINGS_KEY = 'migaku-dueStats-settings';

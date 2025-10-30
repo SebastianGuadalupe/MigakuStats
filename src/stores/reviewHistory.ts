@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
-import { fetchReviewHistory, ReviewHistoryResult, reloadDatabase } from '../utils/database';
+import { fetchReviewHistory, reloadDatabase } from '../utils/database';
+import type { ReviewHistoryResult } from '../types/Database';
 const STORAGE_KEY = 'migaku-reviewHistory';
 const SETTINGS_KEY = 'migaku-reviewHistory-settings';
 

@@ -3,6 +3,7 @@ import pako from 'pako';
 import { logger } from './logger';
 import { DB_CONFIG, APP_SETTINGS, CHART_CONFIG } from './constants';
 import { WORD_QUERY, WORD_QUERY_WITH_DECK, DUE_QUERY, CURRENT_DATE_QUERY, REVIEW_HISTORY_QUERY, INTERVAL_QUERY, STUDY_STATS_QUERY, PASS_RATE_QUERY, NEW_CARDS_QUERY, CARDS_ADDED_QUERY, CARDS_LEARNED_QUERY, TOTAL_NEW_CARDS_QUERY, CARDS_LEARNED_PER_DAY_QUERY, DECKS_QUERY } from './sql-queries';
+import type { WordStats, DueStats, IntervalStats, StudyStats, ReviewHistoryResult } from '../types/Database';
 import { Grouping, PeriodId } from '../stores/reviewHistory';
 import { Deck } from '../types/Deck';
 
@@ -204,12 +205,7 @@ export async function reloadDatabase(): Promise<Database | null> {
   return loadDatabase();
 }
 
-export interface WordStats {
-  known_count: number;
-  learning_count: number;
-  unknown_count: number;
-  ignored_count: number;
-}
+// Types moved to src/types/Database.ts
 
 export async function fetchAvailableDecks(): Promise<Deck[] | null> {
   try {
@@ -274,32 +270,11 @@ export async function fetchWordStats(
   }
 }
 
-export interface DueStats {
-  labels: string[];
-  counts: number[];
-  knownCounts?: number[];
-  learningCounts?: number[];
-}
+// Types moved to src/types/Database.ts
 
-export interface IntervalStats {
-  labels: string[];
-  counts: number[];
-}
+// Types moved to src/types/Database.ts
 
-export interface StudyStats {
-  days_studied: number;
-  days_studied_percent: number;
-  total_reviews: number;
-  avg_reviews_per_calendar_day: number;
-  period_days: number;
-  pass_rate: number;
-  new_cards_per_day: number;
-  total_new_cards: number;
-  total_cards_added: number;
-  cards_added_per_day: number;
-  total_cards_learned: number;
-  cards_learned_per_day: number;
-}
+// Types moved to src/types/Database.ts
 
 export async function fetchDueStats(
   language: string,
@@ -628,11 +603,7 @@ export async function fetchStudyStats(
   }
 }
 
-export interface ReviewHistoryResult {
-  labels: string[];
-  counts: number[][];
-  typeLabels: string[];
-}
+// Types moved to src/types/Database.ts
 
 export async function fetchReviewHistory(
   language: string,

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
-import { fetchWordStats as dbFetchWordStats, WordStats, reloadDatabase } from '../utils/database';
+import { fetchWordStats as dbFetchWordStats, reloadDatabase } from '../utils/database';
+import type { WordStats } from '../types/Database';
 const STORAGE_KEY = 'migaku-wordstats';
 
 export const useWordStatsStore = defineStore('wordStats', () => {
