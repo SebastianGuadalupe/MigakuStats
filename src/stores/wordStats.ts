@@ -3,11 +3,32 @@ import { ref, watch } from 'vue';
 import { fetchWordStats as dbFetchWordStats, reloadDatabase } from '../utils/database';
 import type { WordStats } from '../types/Database';
 const STORAGE_KEY = 'migaku-wordstats';
+const SETTINGS_KEY = 'migaku-wordstats-settings';
 
 export const useWordStatsStore = defineStore('wordStats', () => {
   const wordStats = ref<WordStats|null>(null);
   const isLoading = ref(false);
   const error = ref('');
+  const showUnknown = ref(true);
+  const showIgnored = ref(true);
+
+  function loadSettingsFromStorage() {
+    try {
+      const data = localStorage.getItem(SETTINGS_KEY);
+      if (data) {
+        const parsed = JSON.parse(data);
+        if (typeof parsed.showUnknown === 'boolean') showUnknown.value = parsed.showUnknown;
+        if (typeof parsed.showIgnored === 'boolean') showIgnored.value = parsed.showIgnored;
+      }
+    } catch {}
+  }
+  function saveSettingsToStorage() {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ showUnknown: showUnknown.value, showIgnored: showIgnored.value }));
+  }
+  function setShowUnknown(val: boolean) { showUnknown.value = !!val; }
+  function setShowIgnored(val: boolean) { showIgnored.value = !!val; }
+  loadSettingsFromStorage();
+  watch([showUnknown, showIgnored], saveSettingsToStorage);
 
   function loadFromStorage() {
     try {
@@ -60,6 +81,10 @@ export const useWordStatsStore = defineStore('wordStats', () => {
     wordStats,
     isLoading,
     error,
+    showUnknown,
+    showIgnored,
+    setShowUnknown,
+    setShowIgnored,
     setWordStats,
     clearWordStats,
     fetchWordStatsIfNeeded,

@@ -7,6 +7,7 @@ import { Chart as ChartJS, ArcElement, Tooltip, Legend } from "chart.js";
 import { THEME_CONFIGS } from "../utils/theme";
 import { CHART_CONFIG } from "../utils/constants";
 import { useCardsStore } from "../stores/cards";
+import FloatingMenuButton from "./FloatingMenuButton.vue";
 
 ChartJS.register(ArcElement, Tooltip, Legend);
 
@@ -75,28 +76,38 @@ const chartData = computed(() => {
       datasets: [],
     };
   }
+  const labels: string[] = ["Known", "Learning"]; 
+  const data: number[] = [
+    wordStats.value.known_count,
+    wordStats.value.learning_count,
+  ];
+  const bg: string[] = [
+    themeColors.value.knownColor,
+    themeColors.value.learningColor,
+  ];
+  const border: string[] = [
+    themeColors.value.knownColor,
+    themeColors.value.learningColor,
+  ];
+  if (wordStatsStore.showUnknown) {
+    labels.push("Unknown");
+    data.push(wordStats.value.unknown_count);
+    bg.push(themeColors.value.unknownColor);
+    border.push(themeColors.value.unknownColor);
+  }
+  if (wordStatsStore.showIgnored) {
+    labels.push("Ignored");
+    data.push(wordStats.value.ignored_count);
+    bg.push(themeColors.value.ignoredColor);
+    border.push(themeColors.value.ignoredColor);
+  }
   return {
-    labels: ["Known", "Learning", "Unknown", "Ignored"],
+    labels,
     datasets: [
       {
-        data: [
-          wordStats.value.known_count,
-          wordStats.value.learning_count,
-          wordStats.value.unknown_count,
-          wordStats.value.ignored_count,
-        ],
-        backgroundColor: [
-          themeColors.value.knownColor,
-          themeColors.value.learningColor,
-          themeColors.value.unknownColor,
-          themeColors.value.ignoredColor,
-        ],
-        borderColor: [
-          themeColors.value.knownColor,
-          themeColors.value.learningColor,
-          themeColors.value.unknownColor,
-          themeColors.value.ignoredColor,
-        ],
+        data,
+        backgroundColor: bg,
+        borderColor: border,
         borderWidth: 0,
       },
     ],
@@ -158,6 +169,21 @@ const chartOptions = computed(() => {
 };
 });
 
+const menuSettings = [
+  { key: "showUnknown", label: "Show Unknown", type: "switch" as const, value: wordStatsStore.showUnknown },
+  { key: "showIgnored", label: "Show Ignored", type: "switch" as const, value: wordStatsStore.showIgnored },
+];
+
+const menuValues = computed(() => ({
+  showUnknown: !!wordStatsStore.showUnknown,
+  showIgnored: !!wordStatsStore.showIgnored,
+}));
+
+function updateMenuSettings(newVals: { showUnknown: boolean; showIgnored: boolean }) {
+  wordStatsStore.setShowUnknown(!!newVals.showUnknown);
+  wordStatsStore.setShowIgnored(!!newVals.showIgnored);
+}
+
 watch([language, selectedDeckId], async ([lang, deckId], _prev, onCleanup) => {
   if (!lang) return;
   const fetchPromise = wordStatsStore.fetchWordStatsIfNeeded(lang, deckId);
@@ -176,7 +202,7 @@ watch([language, selectedDeckId], async ([lang, deckId], _prev, onCleanup) => {
     >
       Word Status
     </h3>
-    <div v-if="wordStats && !isLoading && !error" v-bind:[componentHash]="true" style="height: calc(100% - 56px); display: flex; align-items: center; justify-content: center;">
+    <div v-if="wordStats && !isLoading && !error" v-bind:[componentHash]="true" style="height: calc(100% - 56px); display: flex; align-items: center; justify-content: center; position: relative;">
       <div v-bind:[componentHash]="true" class="MCS__wordcount">
         <div v-bind:[componentHash]="true" class="MCS__wordcount__details" v-show="!isOverflowing">
           <div v-bind:[componentHash]="true">
@@ -192,13 +218,13 @@ watch([language, selectedDeckId], async ([lang, deckId], _prev, onCleanup) => {
                 wordStats.learning_count ?? "N/A"
               }}</span>
             </div>
-            <div v-bind:[componentHash]="true">
+            <div v-bind:[componentHash]="true" v-if="wordStatsStore.showUnknown">
               <span class="UiTypo UiTypo__caption">Unknown:</span>
               <span class="UiTypo UiTypo__heading4 -heading -inline">{{
                 wordStats.unknown_count ?? "N/A"
               }}</span>
             </div>
-            <div v-bind:[componentHash]="true">
+            <div v-bind:[componentHash]="true" v-if="wordStatsStore.showIgnored">
               <span class="UiTypo UiTypo__caption">Ignored:</span>
               <span class="UiTypo UiTypo__heading4 -heading -inline">{{
                 wordStats.ignored_count ?? "N/A"
@@ -210,6 +236,13 @@ watch([language, selectedDeckId], async ([lang, deckId], _prev, onCleanup) => {
           <Doughnut class="MCS__wordcount__piechart__donut" :data="chartData" :options="chartOptions" />
         </div>
       </div>
+      <FloatingMenuButton
+        v-if="!cardsStore.isMoveModeActive"
+        :settings="menuSettings"
+        :modelValue="menuValues"
+        @update:modelValue="updateMenuSettings"
+        :buttonPos="{ top: 24, right: 24 }"
+      />
     </div>
     <div v-else-if="isLoading" v-bind:[componentHash]="true">
       <div v-bind:[componentHash]="true" class="MCS__wordcount">
