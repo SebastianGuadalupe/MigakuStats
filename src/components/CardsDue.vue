@@ -144,7 +144,7 @@ const chartData = computed(() => {
       label: "Learning",
       data: learningCounts,
       backgroundColor: themeColors.value.barColor.includes("rgba")
-        ? themeColors.value.barColor.replace(/\[\d\.]+\)$/, "0.75)")
+        ? themeColors.value.barColor.replace(/,\s*[\d.]+\)$/, ", 0.5)")
         : themeColors.value.barColor + "40",
       borderWidth: 0,
       borderRadius: 4,
@@ -155,7 +155,7 @@ const chartData = computed(() => {
       label: "Known",
       data: knownCounts,
       backgroundColor: themeColors.value.barColor.includes("rgba")
-        ? themeColors.value.barColor.replace(/\[\d\.]+\)$/, "1)")
+        ? themeColors.value.barColor.replace(/,\s*[\d.]+\)$/, ", 1)")
         : themeColors.value.barColor + "1A",
       borderWidth: 0,
       borderRadius: 4,
