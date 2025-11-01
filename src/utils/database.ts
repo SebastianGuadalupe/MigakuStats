@@ -2,8 +2,8 @@ import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
 import pako from 'pako';
 import { logger } from './logger';
 import { DB_CONFIG, APP_SETTINGS, CHART_CONFIG } from './constants';
-import { WORD_QUERY, WORD_QUERY_WITH_DECK, DUE_QUERY, CURRENT_DATE_QUERY, REVIEW_HISTORY_QUERY, INTERVAL_QUERY, STUDY_STATS_QUERY, PASS_RATE_QUERY, NEW_CARDS_QUERY, CARDS_ADDED_QUERY, CARDS_LEARNED_QUERY, TOTAL_NEW_CARDS_QUERY, CARDS_LEARNED_PER_DAY_QUERY, DECKS_QUERY } from './sql-queries';
-import type { WordStats, DueStats, IntervalStats, StudyStats, ReviewHistoryResult } from '../types/Database';
+import { WORD_QUERY, WORD_QUERY_WITH_DECK, DUE_QUERY, CURRENT_DATE_QUERY, REVIEW_HISTORY_QUERY, INTERVAL_QUERY, STUDY_STATS_QUERY, PASS_RATE_QUERY, NEW_CARDS_QUERY, CARDS_ADDED_QUERY, CARDS_LEARNED_QUERY, TOTAL_NEW_CARDS_QUERY, CARDS_LEARNED_PER_DAY_QUERY, DECKS_QUERY, NEW_CARDS_TIME_QUERY, REVIEWS_TIME_QUERY, TIME_HISTORY_QUERY } from './sql-queries';
+import type { WordStats, DueStats, IntervalStats, StudyStats, ReviewHistoryResult, TimeHistoryResult } from '../types/Database';
 import { Grouping, PeriodId } from '../stores/reviewHistory';
 import { Deck } from '../types/Deck';
 
@@ -205,8 +205,6 @@ export async function reloadDatabase(): Promise<Database | null> {
   return loadDatabase();
 }
 
-// Types moved to src/types/Database.ts
-
 export async function fetchAvailableDecks(): Promise<Deck[] | null> {
   try {
     const db = await loadDatabase();
@@ -269,12 +267,6 @@ export async function fetchWordStats(
     return null;
   }
 }
-
-// Types moved to src/types/Database.ts
-
-// Types moved to src/types/Database.ts
-
-// Types moved to src/types/Database.ts
 
 export async function fetchDueStats(
   language: string,
@@ -456,13 +448,11 @@ export async function fetchStudyStats(
     const db = await loadDatabase();
     if (!db) return null;
 
-    // Establish current day number from config start
     let currentDate = new Date();
     currentDate.setHours(0, 0, 0, 0);
     const startDate = new Date(CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY);
     let currentDayNumber = Math.floor((currentDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
 
-    // Determine period days and startDayNumber
     let periodDays: number;
     let startDayNumber: number;
     let earliestReviewDayForAllTime: number | null = null;
@@ -494,7 +484,6 @@ export async function fetchStudyStats(
       startDayNumber = currentDayNumber - periodDays + 1;
     }
 
-    // Queries (reuse centralized ones with deck filter modifications)
     let studyQuery = STUDY_STATS_QUERY;
     let studyParams: (string|number)[] = [language, startDayNumber, currentDayNumber];
     if (deckId !== APP_SETTINGS.DEFAULT_DECK_ID) {
@@ -547,6 +536,20 @@ export async function fetchStudyStats(
       cardsLearnedPerDayParams.push(deckId);
     }
 
+    let newCardsTimeQuery = NEW_CARDS_TIME_QUERY;
+    let newCardsTimeParams: (string|number)[] = [language, startDayNumber, currentDayNumber];
+    if (deckId !== APP_SETTINGS.DEFAULT_DECK_ID) {
+      newCardsTimeQuery = newCardsTimeQuery.replace('AND r.del = 0', 'AND c.deckId = ? AND r.del = 0');
+      newCardsTimeParams.push(deckId);
+    }
+
+    let reviewsTimeQuery = REVIEWS_TIME_QUERY;
+    let reviewsTimeParams: (string|number)[] = [language, startDayNumber, currentDayNumber];
+    if (deckId !== APP_SETTINGS.DEFAULT_DECK_ID) {
+      reviewsTimeQuery = reviewsTimeQuery.replace('AND r.del = 0', 'AND c.deckId = ? AND r.del = 0');
+      reviewsTimeParams.push(deckId);
+    }
+
     const studyResults = db.exec(studyQuery, studyParams);
     const passRateResults = db.exec(passRateQuery, passRateParams);
     const newCardsResults = db.exec(newCardsQuery, newCardsParams);
@@ -554,6 +557,8 @@ export async function fetchStudyStats(
     const cardsLearnedResults = db.exec(cardsLearnedQuery, cardsLearnedParams);
     const totalNewCardsResults = db.exec(totalNewCardsQuery, totalNewCardsParams);
     const cardsLearnedPerDayResults = db.exec(cardsLearnedPerDayQuery, cardsLearnedPerDayParams);
+    const newCardsTimeResults = db.exec(newCardsTimeQuery, newCardsTimeParams);
+    const reviewsTimeResults = db.exec(reviewsTimeQuery, reviewsTimeParams);
 
     const days_studied = Number(studyResults?.[0]?.values?.[0]?.[0] ?? 0);
     const total_reviews = Number(studyResults?.[0]?.values?.[0]?.[1] ?? 0);
@@ -583,6 +588,11 @@ export async function fetchStudyStats(
     const cards_learned_per_day = Number(cardsLearnedPerDayResults?.[0]?.values?.[0]?.[0] ?? 0);
     const avg_reviews_per_calendar_day = total_reviews > 0 ? Math.round(((total_reviews / Math.max(1, periodDays)) * 10)) / 10 : 0;
 
+    const total_time_new_cards_seconds = Number(newCardsTimeResults?.[0]?.values?.[0]?.[0] ?? 0);
+    const avg_time_new_card_seconds = Number(newCardsTimeResults?.[0]?.values?.[0]?.[2] ?? 0);
+    const total_time_reviews_seconds = Number(reviewsTimeResults?.[0]?.values?.[0]?.[0] ?? 0);
+    const avg_time_review_seconds = Number(reviewsTimeResults?.[0]?.values?.[0]?.[2] ?? 0);
+
     return {
       days_studied,
       days_studied_percent,
@@ -596,14 +606,16 @@ export async function fetchStudyStats(
       cards_added_per_day,
       total_cards_learned,
       cards_learned_per_day,
+      total_time_new_cards_seconds,
+      avg_time_new_card_seconds,
+      total_time_reviews_seconds,
+      avg_time_review_seconds,
     };
   } catch (error) {
     logger.error('Error fetching study stats:', error);
     return null;
   }
 }
-
-// Types moved to src/types/Database.ts
 
 export async function fetchReviewHistory(
   language: string,
@@ -774,6 +786,205 @@ export async function fetchReviewHistory(
     return { labels: dateLabels, counts: [type0Counts, type1Counts, type2Counts], typeLabels: ['New cards', 'Failed reviews', 'Successful reviews'] };
   } catch (error) {
     logger.error('Error fetching review history:', error);
+    return null;
+  }
+}
+
+export async function fetchTimeHistory(
+  language: string,
+  deckId: string = APP_SETTINGS.DEFAULT_DECK_ID,
+  periodId: PeriodId = "1 Month" as const,
+  grouping: Grouping = "Days" as const,
+  viewMode: 'totals' | 'averages' = 'totals'
+): Promise<TimeHistoryResult | null> {
+  try {
+    const db = await loadDatabase();
+    if (!db) {
+      logger.error('Failed to load database');
+      return null;
+    }
+
+    let currentDate = new Date();
+    currentDate.setHours(0, 0, 0, 0);
+    let currentDayNumber = Math.floor(
+      (currentDate.getTime() - new Date(
+        CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY
+      ).getTime()) / (1000 * 60 * 60 * 24)
+    );
+
+    let period: string | number;
+    if (periodId === 'All time') {
+      period = 'All';
+    } else if (periodId === '1 Year') {
+      period = 12;
+    } else {
+      period = periodId.replace(' Months', '').replace('Months', '');
+    }
+    
+    let periodDays: number;
+    if (period === 'All') {
+      periodDays = currentDayNumber;
+    } else {
+      const periodMonths = typeof period === 'number' ? period : parseInt(period, 10) || 1;
+      const periodStartDate = new Date(currentDate);
+      periodStartDate.setMonth(currentDate.getMonth() - periodMonths);
+      periodDays = Math.round((currentDate.getTime() - periodStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    }
+    const periodDaysAgoDayNumber = currentDayNumber - periodDays;
+
+    let timeQuery = TIME_HISTORY_QUERY;
+    let timeQueryParams: (string | number)[] = [language, periodDaysAgoDayNumber];
+    if (deckId !== APP_SETTINGS.DEFAULT_DECK_ID) {
+      timeQuery = timeQuery.replace(
+        'WHERE ct.lang = ? AND r.day >= ? AND r.del = 0',
+        'WHERE ct.lang = ? AND r.day >= ? AND r.del = 0 AND c.deckId = ?'
+      );
+      timeQueryParams.push(deckId);
+    }
+    const timeResults = db.exec(timeQuery, timeQueryParams);
+
+    const dateLabels: string[] = [];
+    const newCardsTime: number[] = [];
+    const reviewsTime: number[] = [];
+    const dayMap = new Map<number, { index: number, newCards: number, reviews: number, newCardsCount: number, reviewsCount: number }>();
+    const aggregateMap = new Map<string, { index: number, data: { newCards: number, reviews: number, newCardsCount: number, reviewsCount: number } }>();
+
+    let actualPeriodDays = periodDays;
+    if (period === 'All' && timeResults.length > 0 && timeResults[0].values.length > 0) {
+      let earliestDayWithData = currentDayNumber;
+      timeResults[0].values.forEach(row => {
+        const dayNumber = Number(row[0]) ?? 0;
+        earliestDayWithData = Math.min(earliestDayWithData, dayNumber);
+      });
+      const daysWithData = currentDayNumber - earliestDayWithData + 1;
+      actualPeriodDays = Math.min(periodDays, daysWithData);
+    }
+
+    let currentGroupKey: string | number | null = null;
+    let groupIndex = -1;
+    const startDate = new Date(CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY);
+    for (let i = 0; i < actualPeriodDays; i++) {
+      const dayNumber = currentDayNumber - (actualPeriodDays - 1 - i);
+      const date = new Date(startDate);
+      date.setDate(date.getDate() + dayNumber);
+      date.setHours(0, 0, 0, 0);
+      let displayDate: string;
+      let groupKey: string | number;
+      if (grouping === 'Weeks') {
+        const dayOfWeek = (date.getDay() + 6) % 7;
+        const weekStartDate = new Date(date);
+        weekStartDate.setDate(date.getDate() - dayOfWeek);
+        groupKey = weekStartDate.toISOString().split('T')[0];
+        if (groupKey !== currentGroupKey) {
+          displayDate = 'Week of ' + weekStartDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+          dateLabels.push(displayDate);
+          newCardsTime.push(0);
+          reviewsTime.push(0);
+          currentGroupKey = groupKey;
+          groupIndex++;
+          aggregateMap.set(groupKey, { index: groupIndex, data: { newCards: 0, reviews: 0, newCardsCount: 0, reviewsCount: 0 } });
+        }
+      } else if (grouping === 'Months') {
+        groupKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        if (groupKey !== currentGroupKey) {
+          displayDate = date.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+          dateLabels.push(displayDate);
+          newCardsTime.push(0);
+          reviewsTime.push(0);
+          currentGroupKey = groupKey;
+          groupIndex++;
+          aggregateMap.set(groupKey, { index: groupIndex, data: { newCards: 0, reviews: 0, newCardsCount: 0, reviewsCount: 0 } });
+        }
+      } else {
+        groupKey = dayNumber;
+        displayDate = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+        dateLabels.push(displayDate);
+        newCardsTime.push(0);
+        reviewsTime.push(0);
+        dayMap.set(dayNumber, { index: i, newCards: 0, reviews: 0, newCardsCount: 0, reviewsCount: 0 });
+      }
+    }
+
+    if (timeResults.length > 0 && timeResults[0].values.length > 0) {
+      timeResults[0].values.forEach(row => {
+        const dayNumber = typeof row[0] === 'number' ? row[0] : Number(row[0]) ?? 0;
+        const reviewType = String(row[1]);
+        const totalTime = Number(row[2]) ?? 0;
+        const avgTime = Number(row[3]) ?? 0;
+        const reviewCount = Number(row[4]) ?? 0;
+        const date = new Date(startDate);
+        date.setDate(date.getDate() + dayNumber);
+        date.setHours(0, 0, 0, 0);
+        let targetIndex = -1;
+        let targetMapEntry: { index: number; data: { newCards: number; reviews: number; newCardsCount: number; reviewsCount: number } } | undefined = undefined;
+        if (grouping === 'Weeks') {
+          const dayOfWeek = (date.getDay() + 6) % 7;
+          const weekStartDate = new Date(date);
+          weekStartDate.setDate(date.getDate() - dayOfWeek);
+          const groupKey = weekStartDate.toISOString().split('T')[0];
+          if (aggregateMap.has(groupKey)) {
+            targetMapEntry = aggregateMap.get(groupKey);
+            targetIndex = targetMapEntry?.index ?? -1;
+          }
+        } else if (grouping === 'Months') {
+          const groupKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+          if (aggregateMap.has(groupKey)) {
+            targetMapEntry = aggregateMap.get(groupKey);
+            targetIndex = targetMapEntry?.index ?? -1;
+          }
+        } else {
+          if (dayMap.has(dayNumber)) {
+            const entry = dayMap.get(dayNumber);
+            targetIndex = entry?.index ?? -1;
+          }
+        }
+        if (targetIndex !== -1) {
+          if (reviewType === 'new_cards') {
+            if (grouping === 'Days') {
+              const timeValue = viewMode === 'averages' ? avgTime : totalTime;
+              newCardsTime[targetIndex] += timeValue;
+            } else if (targetMapEntry) {
+              if (viewMode === 'averages') {
+                targetMapEntry.data.newCards += totalTime;
+                targetMapEntry.data.newCardsCount += reviewCount;
+              } else {
+                targetMapEntry.data.newCards += totalTime;
+              }
+            }
+          } else if (reviewType === 'reviews') {
+            if (grouping === 'Days') {
+              const timeValue = viewMode === 'averages' ? avgTime : totalTime;
+              reviewsTime[targetIndex] += timeValue;
+            } else if (targetMapEntry) {
+              if (viewMode === 'averages') {
+                targetMapEntry.data.reviews += totalTime;
+                targetMapEntry.data.reviewsCount += reviewCount;
+              } else {
+                targetMapEntry.data.reviews += totalTime;
+              }
+            }
+          }
+        }
+      });
+      if (grouping === 'Weeks' || grouping === 'Months') {
+        aggregateMap.forEach(entry => {
+          if (viewMode === 'averages') {
+            newCardsTime[entry.index] = entry.data.newCardsCount > 0 
+              ? entry.data.newCards / entry.data.newCardsCount 
+              : 0;
+            reviewsTime[entry.index] = entry.data.reviewsCount > 0 
+              ? entry.data.reviews / entry.data.reviewsCount 
+              : 0;
+          } else {
+            newCardsTime[entry.index] = entry.data.newCards;
+            reviewsTime[entry.index] = entry.data.reviews;
+          }
+        });
+      }
+    }
+    return { labels: dateLabels, newCardsTime, reviewsTime };
+  } catch (error) {
+    logger.error('Error fetching time history:', error);
     return null;
   }
 }

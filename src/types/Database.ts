@@ -30,10 +30,20 @@ export interface StudyStats {
   cards_added_per_day: number;
   total_cards_learned: number;
   cards_learned_per_day: number;
+  total_time_new_cards_seconds: number;
+  avg_time_new_card_seconds: number;
+  total_time_reviews_seconds: number;
+  avg_time_review_seconds: number;
 }
 
 export interface ReviewHistoryResult {
   labels: string[];
   counts: number[][];
   typeLabels: string[];
+}
+
+export interface TimeHistoryResult {
+  labels: string[];
+  newCardsTime: number[];
+  reviewsTime: number[];
 }

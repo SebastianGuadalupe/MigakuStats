@@ -128,3 +128,42 @@ export const CARDS_LEARNED_PER_DAY_QUERY = `
   JOIN card_type ct ON c.cardTypeId = ct.id
   WHERE ct.lang = ? AND r.day BETWEEN ? AND ? AND r.del = 0 
     AND c.interval >= 20 AND r.interval < 20 AND r.type = 2;`;
+
+export const NEW_CARDS_TIME_QUERY = `
+  SELECT 
+    SUM(r.duration) as total_time_seconds,
+    COUNT(*) as review_count,
+    ROUND(AVG(r.duration), 1) as avg_time_seconds
+  FROM review r
+  JOIN card c ON r.cardId = c.id
+  JOIN card_type ct ON c.cardTypeId = ct.id
+  WHERE ct.lang = ? AND r.day BETWEEN ? AND ? AND r.del = 0 AND r.type = 0;`;
+
+export const REVIEWS_TIME_QUERY = `
+  SELECT 
+    SUM(r.duration) as total_time_seconds,
+    COUNT(*) as review_count,
+    ROUND(AVG(r.duration), 1) as avg_time_seconds
+  FROM review r
+  JOIN card c ON r.cardId = c.id
+  JOIN card_type ct ON c.cardTypeId = ct.id
+  WHERE ct.lang = ? AND r.day BETWEEN ? AND ? AND r.del = 0 AND r.type IN (1, 2);`;
+
+export const TIME_HISTORY_QUERY = `
+  SELECT 
+    r.day,
+    CASE 
+      WHEN r.type = 0 THEN 'new_cards'
+      WHEN r.type IN (1, 2) THEN 'reviews'
+      ELSE 'other'
+    END as review_type,
+    SUM(r.duration) as total_time_seconds,
+    ROUND(AVG(r.duration), 1) as avg_time_seconds,
+    COUNT(*) as review_count
+  FROM review r
+  JOIN card c ON r.cardId = c.id
+  JOIN card_type ct ON c.cardTypeId = ct.id
+  JOIN reviewHistory rh ON r.day = rh.day
+  WHERE ct.lang = ? AND r.day >= ? AND r.del = 0 AND r.type IN (0, 1, 2)
+  GROUP BY r.day, review_type
+  ORDER BY r.day DESC, review_type`;

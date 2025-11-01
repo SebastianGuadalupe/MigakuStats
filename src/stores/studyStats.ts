@@ -16,6 +16,7 @@ export const useStudyStatsStore = defineStore("studyStats", () => {
     percGroup: true,
     totalsGroup: true,
     avgsGroup: true,
+    timeGroup: true,
     daysStudiedPercent: true,
     passRate: true,
     totalReviews: true,
@@ -26,6 +27,10 @@ export const useStudyStatsStore = defineStore("studyStats", () => {
     newCardsPerDay: true,
     totalCardsLearned: true,
     cardsLearnedPerDay: true,
+    totalTimeNewCards: true,
+    avgTimeNewCard: true,
+    totalTimeReviews: true,
+    avgTimeReview: true,
   });
 
   function loadSettingsFromStorage() {

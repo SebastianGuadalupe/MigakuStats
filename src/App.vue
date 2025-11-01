@@ -12,6 +12,7 @@ import CardsDue from "./components/CardsDue.vue";
 import ReviewHistory from "./components/ReviewHistory.vue";
 import ReviewIntervals from "./components/ReviewIntervals.vue";
 import StudyStatistics from "./components/StudyStatistics.vue";
+import TimeChart from "./components/TimeChart.vue";
 import CustomStat from "./components/CustomStat.vue";
 import ActionSheet from "./components/ActionSheet.vue";
 import FloatingButton from "./components/FloatingButton.vue";
@@ -62,6 +63,8 @@ function getCardLabel(cardId: string) {
       return "Review intervals";
     case "StudyStatistics":
       return "Study statistics";
+    case "TimeChart":
+      return "Time statistics";
     default:
       return cardId;
   }
@@ -95,6 +98,7 @@ const cardComponents: Record<string, any> = {
   ReviewHistory,
   ReviewIntervals,
   StudyStatistics,
+  TimeChart,
 };
 
 watch(

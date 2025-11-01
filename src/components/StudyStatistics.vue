@@ -32,6 +32,28 @@ watch([language, selectedDeckId, periodId], async ([lang, deck, period], _prev, 
   await promise; if (cancelled) return;
 });
 
+function formatTime(seconds: number): string {
+  if (seconds === 0 || !seconds) return '0s';
+  const secs = Math.floor(seconds);
+  const minutes = Math.floor(secs / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  
+  if (days > 0) {
+    const remainingHours = hours % 24;
+    return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days}d`;
+  }
+  if (hours > 0) {
+    const remainingMinutes = minutes % 60;
+    return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+  }
+  if (minutes > 0) {
+    const remainingSeconds = secs % 60;
+    return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
+  }
+  return `${secs}s`;
+}
+
 const menuSettings = [
   {
     key: 'periodId',
@@ -73,6 +95,18 @@ const menuSettings = [
       { key: 'cardsAddedPerDay', label: 'Avg. cards added/day', type: 'switch' as const, value: visibility.value.cardsAddedPerDay },
       { key: 'newCardsPerDay', label: 'Avg. new cards/day', type: 'switch' as const, value: visibility.value.newCardsPerDay },
       { key: 'cardsLearnedPerDay', label: 'Avg. cards learned/day', type: 'switch' as const, value: visibility.value.cardsLearnedPerDay },
+    ]
+  },
+  {
+    key: 'timeGroup',
+    label: 'Time (group)',
+    type: 'group' as const,
+    value: visibility.value.timeGroup,
+    children: [
+      { key: 'totalTimeNewCards', label: 'Total time on new cards', type: 'switch' as const, value: visibility.value.totalTimeNewCards },
+      { key: 'avgTimeNewCard', label: 'Avg. time/new card', type: 'switch' as const, value: visibility.value.avgTimeNewCard },
+      { key: 'totalTimeReviews', label: 'Total time on reviews', type: 'switch' as const, value: visibility.value.totalTimeReviews },
+      { key: 'avgTimeReview', label: 'Avg. time/review', type: 'switch' as const, value: visibility.value.avgTimeReview },
     ]
   },
 ];
@@ -140,6 +174,25 @@ function updateMenuSettings(newVals: any) {
             <div class="MCS__stat-label">Avg. cards learned/day</div>
           </div>
         </div>
+        <h4 v-if="visibility.timeGroup && (visibility.totalTimeNewCards || visibility.avgTimeNewCard || visibility.totalTimeReviews || visibility.avgTimeReview)" :[componentHash]="true" class="UiTypo UiTypo__heading4 -heading">Time</h4>
+        <div v-if="visibility.timeGroup && (visibility.totalTimeNewCards || visibility.avgTimeNewCard || visibility.totalTimeReviews || visibility.avgTimeReview)" class="MCS__study-grid">
+          <div v-if="visibility.timeGroup && visibility.totalTimeNewCards" class="MCS__stat-box">
+            <div class="MCS__stat-value">{{ formatTime(stats.total_time_new_cards_seconds) }}</div>
+            <div class="MCS__stat-label">Total time on new cards</div>
+          </div>
+          <div v-if="visibility.timeGroup && visibility.avgTimeNewCard" class="MCS__stat-box">
+            <div class="MCS__stat-value">{{ formatTime(stats.avg_time_new_card_seconds) }}</div>
+            <div class="MCS__stat-label">Avg. time/new card</div>
+          </div>
+          <div v-if="visibility.timeGroup && visibility.totalTimeReviews" class="MCS__stat-box">
+            <div class="MCS__stat-value">{{ formatTime(stats.total_time_reviews_seconds) }}</div>
+            <div class="MCS__stat-label">Total time on reviews</div>
+          </div>
+          <div v-if="visibility.timeGroup && visibility.avgTimeReview" class="MCS__stat-box">
+            <div class="MCS__stat-value">{{ formatTime(stats.avg_time_review_seconds) }}</div>
+            <div class="MCS__stat-label">Avg. time/review</div>
+          </div>
+        </div>
       </template>
       <template v-else-if="isLoading">
         <h4 v-if="visibility.percGroup && (visibility.daysStudiedPercent || visibility.passRate)" :[componentHash]="true" class="UiTypo UiTypo__heading4 -heading">Percentages</h4>
@@ -187,6 +240,25 @@ function updateMenuSettings(newVals: any) {
             <span class="UiSkeleton" style="width: 70%; height: 14px; margin-top: 8px; border-radius: 8px"></span>
           </div>
           <div v-if="visibility.avgsGroup && visibility.cardsLearnedPerDay" class="MCS__stat-box">
+            <span class="UiSkeleton" style="width: 60%; height: 24px; border-radius: 8px"></span>
+            <span class="UiSkeleton" style="width: 70%; height: 14px; margin-top: 8px; border-radius: 8px"></span>
+          </div>
+        </div>
+        <h4 v-if="visibility.timeGroup && (visibility.totalTimeNewCards || visibility.avgTimeNewCard || visibility.totalTimeReviews || visibility.avgTimeReview)" :[componentHash]="true" class="UiTypo UiTypo__heading4 -heading">Time</h4>
+        <div v-if="visibility.timeGroup && (visibility.totalTimeNewCards || visibility.avgTimeNewCard || visibility.totalTimeReviews || visibility.avgTimeReview)" class="MCS__study-grid">
+          <div v-if="visibility.timeGroup && visibility.totalTimeNewCards" class="MCS__stat-box">
+            <span class="UiSkeleton" style="width: 60%; height: 24px; border-radius: 8px"></span>
+            <span class="UiSkeleton" style="width: 70%; height: 14px; margin-top: 8px; border-radius: 8px"></span>
+          </div>
+          <div v-if="visibility.timeGroup && visibility.avgTimeNewCard" class="MCS__stat-box">
+            <span class="UiSkeleton" style="width: 60%; height: 24px; border-radius: 8px"></span>
+            <span class="UiSkeleton" style="width: 70%; height: 14px; margin-top: 8px; border-radius: 8px"></span>
+          </div>
+          <div v-if="visibility.timeGroup && visibility.totalTimeReviews" class="MCS__stat-box">
+            <span class="UiSkeleton" style="width: 60%; height: 24px; border-radius: 8px"></span>
+            <span class="UiSkeleton" style="width: 70%; height: 14px; margin-top: 8px; border-radius: 8px"></span>
+          </div>
+          <div v-if="visibility.timeGroup && visibility.avgTimeReview" class="MCS__stat-box">
             <span class="UiSkeleton" style="width: 60%; height: 24px; border-radius: 8px"></span>
             <span class="UiSkeleton" style="width: 70%; height: 14px; margin-top: 8px; border-radius: 8px"></span>
           </div>
