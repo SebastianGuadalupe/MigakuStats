@@ -13,7 +13,7 @@ export default defineConfig({
         icon: 'https://study.migaku.com/favicon.ico',
         namespace: 'http://tampermonkey.net/',
         match: ['https://study.migaku.com/*'],
-        version: '0.2.2',
+        version: '0.2.3',
         description: 'More stats for Migaku Memory.',
         author: 'sguadalupe',
         license: 'GPL-3.0',
