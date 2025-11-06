@@ -404,10 +404,10 @@ export async function fetchIntervalStats(
     let maxInterval = 0;
     let totalCards = 0;
     for (const row of results[0].values as any[]) {
-      const interval = Number(row[0]);
+      const interval = Math.round(Number(row[0]));
       const count = Number(row[1]);
       intervalMap.set(interval, count);
-      maxInterval = Math.max(maxInterval, (intervalMap.get(interval) ?? 0) + count);
+      maxInterval = Math.max(maxInterval, interval);
       totalCards += count;
     }
 

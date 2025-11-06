@@ -44,7 +44,7 @@ export const DUE_QUERY = `
 
 export const INTERVAL_QUERY = `
   SELECT
-    interval as interval_group,
+    ROUND(interval) as interval_group,
     COUNT(*) as count
   FROM card c
   JOIN card_type ct ON c.cardTypeId = ct.id
