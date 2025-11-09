@@ -262,6 +262,12 @@ const menuSettingValues = computed(() => ({
 function updateMenuSettings(newVals: { grouping: "Days" | "Weeks" | "Months"; periodId: "1 Month" | "2 Months" | "3 Months" | "6 Months" | "1 Year" | "All time" }) {
   reviewHistoryStore.setGroupingAndPeriod(newVals.grouping, newVals.periodId);
 }
+
+async function handleRetry() {
+  if (language.value) {
+    await reviewHistoryStore.refetch(language.value, selectedDeckId.value);
+  }
+}
 </script>
 
 <template>
@@ -320,10 +326,30 @@ function updateMenuSettings(newVals: { grouping: "Days" | "Weeks" | "Months"; pe
         </div>
       </template>
       <template v-else-if="error">
-        <span>{{ error }}</span>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 12px;">
+          <span>{{ error }}</span>
+          <button 
+            v-bind:[componentHash]="true" 
+            class="UiButton UiButton--primary"
+            @click="handleRetry"
+            :disabled="isLoading"
+          >
+            {{ isLoading ? 'Retrying...' : 'Retry' }}
+          </button>
+        </div>
       </template>
       <template v-else>
-        <span>Could not load review history data.</span>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 12px;">
+          <span>Could not load review history data.</span>
+          <button 
+            v-bind:[componentHash]="true" 
+            class="UiButton UiButton--primary"
+            @click="handleRetry"
+            :disabled="isLoading"
+          >
+            {{ isLoading ? 'Retrying...' : 'Retry' }}
+          </button>
+        </div>
       </template>
       <FloatingMenuButton
         v-if="!isLoading && !error && !cardsStore.isMoveModeActive"

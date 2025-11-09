@@ -204,6 +204,12 @@ function updateMenuSettings(newVals: {
   }
 }
 
+async function handleRetry() {
+  if (language.value) {
+    await timeStatsStore.refetch(language.value, selectedDeckId.value);
+  }
+}
+
 const chartData = computed(() => {
   if (
     !timeHistory.value ||
@@ -394,10 +400,30 @@ const chartOptions = computed(() => {
         </div>
       </template>
       <template v-else-if="error">
-        <span>{{ error }}</span>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 12px;">
+          <span>{{ error }}</span>
+          <button 
+            v-bind:[componentHash]="true" 
+            class="UiButton UiButton--primary"
+            @click="handleRetry"
+            :disabled="isLoading"
+          >
+            {{ isLoading ? 'Retrying...' : 'Retry' }}
+          </button>
+        </div>
       </template>
       <template v-else>
-        <span>Could not load time statistics.</span>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 12px;">
+          <span>Could not load time statistics.</span>
+          <button 
+            v-bind:[componentHash]="true" 
+            class="UiButton UiButton--primary"
+            @click="handleRetry"
+            :disabled="isLoading"
+          >
+            {{ isLoading ? 'Retrying...' : 'Retry' }}
+          </button>
+        </div>
       </template>
       <FloatingMenuButton
         v-if="!isLoading && !error && !cardsStore.isMoveModeActive"

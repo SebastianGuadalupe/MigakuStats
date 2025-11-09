@@ -12,6 +12,8 @@ interface DatabaseState {
   db: Database | null;
   isLoading: boolean;
   error: string | null;
+  lastErrorDetails: string | null;
+  retryCount: number;
 }
 
 const dbState: DatabaseState = {
@@ -19,7 +21,12 @@ const dbState: DatabaseState = {
   db: null,
   isLoading: false,
   error: null,
+  lastErrorDetails: null,
+  retryCount: 0,
 };
+
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 1000; // ms
 
 function initDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -65,27 +72,80 @@ async function initializeSqlEngine(): Promise<SqlJsStatic | null> {
 
     logger.debug('Initializing SQL.js...');
     
-    const SQL = await initSqlJs({
-      locateFile: (file: string) => {
-        logger.debug(`Locating file: ${file}`);
-        if (file.endsWith('.wasm')) {
-          return 'https://cdn.jsdelivr.net/npm/sql.js@1.13.0/dist/sql-wasm.wasm';
-        }
-        return file;
-      },
-    });
+    // Try multiple CDN sources for the WASM file
+    const wasmCdns = [
+      'https://cdn.jsdelivr.net/npm/sql.js@1.13.0/dist/sql-wasm.wasm',
+      'https://unpkg.com/sql.js@1.13.0/dist/sql-wasm.wasm',
+      'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.13.0/sql-wasm.wasm',
+    ];
     
-    if (!SQL) {
-      throw new Error('SQL.js initialization returned null');
+    let lastError: Error | null = null;
+    
+    for (const wasmUrl of wasmCdns) {
+      try {
+        logger.debug(`Attempting to load WASM from: ${wasmUrl}`);
+        const SQL = await initSqlJs({
+          locateFile: (file: string) => {
+            if (file.endsWith('.wasm')) {
+              return wasmUrl;
+            }
+            return file;
+          },
+        });
+        
+        if (!SQL) {
+          throw new Error('SQL.js initialization returned null');
+        }
+        
+        logger.debug('SQL.js initialized successfully');
+        dbState.sql = SQL;
+        dbState.retryCount = 0; // Reset retry count on success
+        return SQL;
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        logger.warn(`Failed to load WASM from ${wasmUrl}, trying next CDN...`, err);
+      }
     }
     
-    logger.debug('SQL.js initialized successfully');
-    dbState.sql = SQL;
-    return SQL;
+    // If all CDNs failed
+    const errorMsg = `Failed to load SQL.js WASM file from all CDN sources. ${lastError?.message || ''}`;
+    logger.error(errorMsg);
+    dbState.lastErrorDetails = errorMsg;
+    throw new Error(errorMsg);
   } catch (err) {
     logger.error('Failed to initialize SQL.js:', err);
+    dbState.lastErrorDetails = err instanceof Error ? err.message : String(err);
     return null;
   }
+}
+
+async function loadDatabaseWithRetry(): Promise<Database | null> {
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      if (attempt > 0) {
+        logger.debug(`Retry attempt ${attempt}/${MAX_RETRIES} for database loading...`);
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY * attempt));
+      }
+      
+      const db = await loadDatabase();
+      if (db) {
+        dbState.retryCount = 0;
+        return db;
+      }
+      
+      // If loadDatabase returned null but no exception was thrown, still retry
+      if (attempt < MAX_RETRIES) {
+        logger.warn(`Database load returned null, retrying... (${attempt + 1}/${MAX_RETRIES})`);
+      }
+    } catch (err) {
+      logger.error(`Database load attempt ${attempt + 1} failed:`, err);
+      if (attempt === MAX_RETRIES) {
+        dbState.lastErrorDetails = err instanceof Error ? err.message : String(err);
+        throw err;
+      }
+    }
+  }
+  return null;
 }
 
 async function loadDatabase(): Promise<Database | null> {
@@ -107,14 +167,16 @@ async function loadDatabase(): Promise<Database | null> {
 
     dbState.isLoading = true;
     dbState.error = null;
+    dbState.lastErrorDetails = null;
 
     const idb = await initDB();
 
     if (!idb.objectStoreNames.contains(DB_CONFIG.OBJECT_STORE)) {
-      const error = `Object store "${DB_CONFIG.OBJECT_STORE}" not found in database "${DB_CONFIG.DB_NAME}"`;
+      const error = `Migaku database not properly initialized. Object store "${DB_CONFIG.OBJECT_STORE}" not found. Please make sure Migaku is running and has synced your data.`;
       logger.error(error);
       logger.error(`Available stores: ${Array.from(idb.objectStoreNames).join(', ')}`);
       dbState.error = error;
+      dbState.lastErrorDetails = error;
       dbState.isLoading = false;
       return null;
     }
@@ -144,7 +206,7 @@ async function loadDatabase(): Promise<Database | null> {
           !allRecords[0]?.data ||
           !(allRecords[0].data instanceof Uint8Array)
         ) {
-          reject(new Error('Invalid data structure in IndexedDB'));
+          reject(new Error('No Migaku data found in IndexedDB. Please ensure Migaku has synced your statistics data.'));
           return;
         }
 
@@ -160,14 +222,18 @@ async function loadDatabase(): Promise<Database | null> {
 
     const decompressedData = decompressData(data);
     if (!decompressedData) {
-      dbState.error = 'Failed to decompress database data';
+      const error = 'Failed to decompress Migaku database. The data may be corrupted. Try resyncing in Migaku.';
+      dbState.error = error;
+      dbState.lastErrorDetails = error;
       dbState.isLoading = false;
       return null;
     }
 
     const SQL = await initializeSqlEngine();
     if (!SQL) {
-      dbState.error = 'Failed to initialize SQL.js';
+      const error = 'Failed to load SQL.js engine. This may be due to network issues or CDN blocking. Check your internet connection and try again.';
+      dbState.error = error;
+      dbState.lastErrorDetails = dbState.lastErrorDetails || error;
       dbState.isLoading = false;
       return null;
     }
@@ -202,12 +268,12 @@ export function clearDatabaseCache(): void {
 export async function reloadDatabase(): Promise<Database | null> {
   logger.debug('Reloading database from IndexedDB');
   clearDatabaseCache();
-  return loadDatabase();
+  return loadDatabaseWithRetry();
 }
 
 export async function fetchAvailableDecks(): Promise<Deck[] | null> {
   try {
-    const db = await loadDatabase();
+    const db = await loadDatabaseWithRetry();
     if (!db) {
       logger.error('Failed to load database');
       return null;
@@ -233,7 +299,7 @@ export async function fetchWordStats(
   deckId: string = APP_SETTINGS.DEFAULT_DECK_ID
 ): Promise<WordStats | null> {
   try {
-    const db = await loadDatabase();
+    const db = await loadDatabaseWithRetry();
     if (!db) {
       logger.error('Failed to load database');
       return null;
@@ -274,7 +340,7 @@ export async function fetchDueStats(
   periodId: PeriodId = "1 Month" as const
 ): Promise<DueStats | null> {
   try {
-    const db = await loadDatabase();
+    const db = await loadDatabaseWithRetry();
     if (!db) {
       logger.error('Failed to load database');
       return null;
@@ -384,7 +450,7 @@ export async function fetchIntervalStats(
   percentileId: '50th' | '75th' | '95th' | '100th' = '75th'
 ): Promise<IntervalStats | null> {
   try {
-    const db = await loadDatabase();
+    const db = await loadDatabaseWithRetry();
     if (!db) return null;
 
     let intervalQuery = INTERVAL_QUERY;
@@ -445,7 +511,7 @@ export async function fetchStudyStats(
   periodId: PeriodId = '1 Month'
 ): Promise<StudyStats | null> {
   try {
-    const db = await loadDatabase();
+    const db = await loadDatabaseWithRetry();
     if (!db) return null;
 
     let currentDate = new Date();
@@ -624,7 +690,7 @@ export async function fetchReviewHistory(
   grouping: Grouping = "Days" as const
 ): Promise<ReviewHistoryResult | null> {
   try {
-    const db = await loadDatabase();
+    const db = await loadDatabaseWithRetry();
     if (!db) {
       logger.error('Failed to load database');
       return null;
@@ -798,7 +864,7 @@ export async function fetchTimeHistory(
   viewMode: 'totals' | 'averages' = 'totals'
 ): Promise<TimeHistoryResult | null> {
   try {
-    const db = await loadDatabase();
+    const db = await loadDatabaseWithRetry();
     if (!db) {
       logger.error('Failed to load database');
       return null;
@@ -993,7 +1059,17 @@ export function getDatabaseError(): string | null {
   return dbState.error;
 }
 
+export function getDatabaseErrorDetails(): string | null {
+  return dbState.lastErrorDetails;
+}
+
 export function isDatabaseLoading(): boolean {
   return dbState.isLoading;
+}
+
+export async function retryDatabaseLoad(): Promise<Database | null> {
+  logger.debug('Manual database retry requested');
+  clearDatabaseCache();
+  return loadDatabaseWithRetry();
 }
 

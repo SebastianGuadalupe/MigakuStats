@@ -118,6 +118,12 @@ function updateMenuSettings(newVals: any) {
   for (const k in updated) { if (k in newVals) updated[k] = !!newVals[k]; }
   studyStatsStore.setVisibilities(updated);
 }
+
+async function handleRetry() {
+  if (language.value) {
+    await studyStatsStore.refetch(language.value, selectedDeckId.value);
+  }
+}
 </script>
 
 <template>
@@ -264,8 +270,32 @@ function updateMenuSettings(newVals: any) {
           </div>
         </div>
       </template>
-      <template v-else-if="error"><span>{{ error }}</span></template>
-      <template v-else><span>Could not load study statistics.</span></template>
+      <template v-else-if="error">
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 12px;">
+          <span>{{ error }}</span>
+          <button 
+            v-bind:[componentHash]="true" 
+            class="UiButton UiButton--primary"
+            @click="handleRetry"
+            :disabled="isLoading"
+          >
+            {{ isLoading ? 'Retrying...' : 'Retry' }}
+          </button>
+        </div>
+      </template>
+      <template v-else>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 12px;">
+          <span>Could not load study statistics.</span>
+          <button 
+            v-bind:[componentHash]="true" 
+            class="UiButton UiButton--primary"
+            @click="handleRetry"
+            :disabled="isLoading"
+          >
+            {{ isLoading ? 'Retrying...' : 'Retry' }}
+          </button>
+        </div>
+      </template>
 
       <FloatingMenuButton
         v-if="!isLoading && !error && !cardsStore.isMoveModeActive"

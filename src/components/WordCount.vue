@@ -192,6 +192,12 @@ watch([language, selectedDeckId], async ([lang, deckId], _prev, onCleanup) => {
   await fetchPromise;
   if (cancelled) return;
 });
+
+async function handleRetry() {
+  if (language.value) {
+    await wordStatsStore.refetch(language.value, selectedDeckId.value);
+  }
+}
 </script>
 
 <template>
@@ -288,14 +294,30 @@ watch([language, selectedDeckId], async ([lang, deckId], _prev, onCleanup) => {
       </div>
     </div>
     <div v-else-if="error" v-bind:[componentHash]="true" class="MCS__word-stats-card">
-      <p v-bind:[componentHash]="true" class="UiTypo UiTypo__body2">
+      <p v-bind:[componentHash]="true" class="UiTypo UiTypo__body2" style="margin-bottom: 16px;">
         {{ error }}
       </p>
+      <button 
+        v-bind:[componentHash]="true" 
+        class="UiButton UiButton--primary"
+        @click="handleRetry"
+        :disabled="isLoading"
+      >
+        {{ isLoading ? 'Retrying...' : 'Retry' }}
+      </button>
     </div>
     <div v-else v-bind:[componentHash]="true" class="MCS__word-stats-card">
-      <p v-bind:[componentHash]="true" class="UiTypo UiTypo__body2">
+      <p v-bind:[componentHash]="true" class="UiTypo UiTypo__body2" style="margin-bottom: 16px;">
         Could not load word status data.
       </p>
+      <button 
+        v-bind:[componentHash]="true" 
+        class="UiButton UiButton--primary"
+        @click="handleRetry"
+        :disabled="isLoading"
+      >
+        {{ isLoading ? 'Retrying...' : 'Retry' }}
+      </button>
     </div>
   </div>
 </template>

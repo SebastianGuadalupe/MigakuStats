@@ -125,6 +125,12 @@ function updateMenuSettings(newVals: { periodId: "1 Month" | "2 Months" | "3 Mon
   dueStatsStore.setPeriod(newVals.periodId);
 }
 
+async function handleRetry() {
+  if (language.value) {
+    await dueStatsStore.refetch(language.value, selectedDeckId.value);
+  }
+}
+
 const chartData = computed(() => {
   if (!dueStats.value || !dueStats.value.labels || !dueStats.value.counts) {
     return { labels: [], datasets: [] };
@@ -356,10 +362,30 @@ const chartOptions = computed(() => {
         </div>
       </template>
       <template v-else-if="error">
-        <span>{{ error }}</span>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 12px;">
+          <span>{{ error }}</span>
+          <button 
+            v-bind:[componentHash]="true" 
+            class="UiButton UiButton--primary"
+            @click="handleRetry"
+            :disabled="isLoading"
+          >
+            {{ isLoading ? 'Retrying...' : 'Retry' }}
+          </button>
+        </div>
       </template>
       <template v-else>
-        <span>Could not load due card data.</span>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 12px;">
+          <span>Could not load due card data.</span>
+          <button 
+            v-bind:[componentHash]="true" 
+            class="UiButton UiButton--primary"
+            @click="handleRetry"
+            :disabled="isLoading"
+          >
+            {{ isLoading ? 'Retrying...' : 'Retry' }}
+          </button>
+        </div>
       </template>
       <FloatingMenuButton
         v-if="!cardsStore.isMoveModeActive"
