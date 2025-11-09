@@ -12,6 +12,40 @@ let nativeNode: HTMLElement | null = null;
 let originalParent: Node | null = null;
 let originalNext: Node | null = null;
 
+function addDayLabels(heatmapContainer: HTMLElement) {
+  // Remove existing labels if any
+  const existingLabels = heatmapContainer.querySelector('.MCS__heatmap-day-labels');
+  if (existingLabels) existingLabels.remove();
+
+  // Get the component hash for styling
+  const componentHash = appStore.componentHash || nativeNode?.querySelector('.UiTypo')?.attributes[0].nodeName;
+  if (!componentHash) return;
+
+  // Create the day labels container
+  const dayLabelsContainer = document.createElement('div');
+  dayLabelsContainer.className = 'MCS__heatmap-day-labels';
+  dayLabelsContainer.setAttribute(componentHash, '');
+
+  // Days of the week (starting with Monday)
+  const days = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+  
+  days.forEach(day => {
+    const dayLabel = document.createElement('div');
+    dayLabel.className = 'MCS__heatmap-day-label UiTypo UiTypo__caption';
+    dayLabel.setAttribute(componentHash, '');
+    dayLabel.textContent = day;
+    dayLabelsContainer.appendChild(dayLabel);
+  });
+
+  // Insert before the heatmap content
+  const heatmapContent = heatmapContainer.firstChild;
+  if (heatmapContent) {
+    heatmapContainer.insertBefore(dayLabelsContainer, heatmapContent);
+  } else {
+    heatmapContainer.appendChild(dayLabelsContainer);
+  }
+}
+
 async function moveNativeNode() {
   nativeNode = document.getElementById('original-stats-card-container');
   if (nativeNode && domSlotRef.value) {
@@ -32,6 +66,11 @@ async function moveNativeNode() {
     heatmapCard.style.height = "calc(100% - 256px)";
     heatmapCard.style.overflowY = "scroll";
     heatmapCard.scrollTop = heatmapCard.scrollHeight;
+    
+    // Add day-of-week labels if not already added
+    if (!heatmapCard.querySelector('.MCS__heatmap-day-labels')) {
+      addDayLabels(heatmapCard);
+    }
   }
 
   const averageReviewsPerDayValue = nativeNode?.querySelector('#average-reviews-per-day-value')?.textContent || nativeNode?.querySelector('.UiTypo.UiTypo__heading3.-heading')?.textContent;
@@ -106,5 +145,22 @@ watch(() => appStore.language, async() => {
   box-shadow: none;
   padding: 0;
   height: 100%;
+}
+</style>
+
+<style>
+.MCS__heatmap-day-labels {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  padding: 0 4px 8px 4px;
+  margin-bottom: 4px;
+}
+
+.MCS__heatmap-day-label {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.7;
 }
 </style>
