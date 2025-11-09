@@ -13,37 +13,35 @@ let originalParent: Node | null = null;
 let originalNext: Node | null = null;
 
 function addDayLabels(heatmapContainer: HTMLElement) {
-  // Remove existing labels if any
-  const existingLabels = heatmapContainer.querySelector('.MCS__heatmap-day-labels');
-  if (existingLabels) existingLabels.remove();
-
-  // Get the component hash for styling
-  const componentHash = appStore.componentHash || nativeNode?.querySelector('.UiTypo')?.attributes[0].nodeName;
-  if (!componentHash) return;
-
-  // Create the day labels container
-  const dayLabelsContainer = document.createElement('div');
-  dayLabelsContainer.className = 'MCS__heatmap-day-labels';
-  dayLabelsContainer.setAttribute(componentHash, '');
+  // Find all heatmap day squares
+  const daySquares = heatmapContainer.querySelectorAll('.Statistic__heatmap__day');
+  if (!daySquares || daySquares.length === 0) return;
 
   // Days of the week (starting with Monday)
-  const days = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+  const days = ['M', 'T', 'W', 'TH', 'F', 'S', 'SU'];
   
-  days.forEach(day => {
-    const dayLabel = document.createElement('div');
-    dayLabel.className = 'MCS__heatmap-day-label UiTypo UiTypo__caption';
-    dayLabel.setAttribute(componentHash, '');
-    dayLabel.textContent = day;
-    dayLabelsContainer.appendChild(dayLabel);
+  // Get the component hash for styling
+  const componentHash = appStore.componentHash || nativeNode?.querySelector('.UiTypo')?.attributes[0].nodeName;
+  
+  daySquares.forEach((square, index) => {
+    // Skip if label already exists
+    if (square.querySelector('.MCS__day-label')) return;
+    
+    const dayOfWeek = index % 7;
+    const dayLabel = days[dayOfWeek];
+    
+    // Create label element
+    const labelElement = document.createElement('div');
+    labelElement.className = 'MCS__day-label';
+    if (componentHash) labelElement.setAttribute(componentHash, '');
+    labelElement.textContent = dayLabel;
+    
+    // Make the square position relative if it isn't
+    if (square instanceof HTMLElement) {
+      square.style.position = 'relative';
+      square.appendChild(labelElement);
+    }
   });
-
-  // Insert before the heatmap content
-  const heatmapContent = heatmapContainer.firstChild;
-  if (heatmapContent) {
-    heatmapContainer.insertBefore(dayLabelsContainer, heatmapContent);
-  } else {
-    heatmapContainer.appendChild(dayLabelsContainer);
-  }
 }
 
 async function moveNativeNode() {
@@ -67,10 +65,8 @@ async function moveNativeNode() {
     heatmapCard.style.overflowY = "scroll";
     heatmapCard.scrollTop = heatmapCard.scrollHeight;
     
-    // Add day-of-week labels if not already added
-    if (!heatmapCard.querySelector('.MCS__heatmap-day-labels')) {
-      addDayLabels(heatmapCard);
-    }
+    // Add day-of-week labels to each square
+    addDayLabels(heatmapCard);
   }
 
   const averageReviewsPerDayValue = nativeNode?.querySelector('#average-reviews-per-day-value')?.textContent || nativeNode?.querySelector('.UiTypo.UiTypo__heading3.-heading')?.textContent;
@@ -149,18 +145,18 @@ watch(() => appStore.language, async() => {
 </style>
 
 <style>
-.MCS__heatmap-day-labels {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 2px;
-  padding: 0 4px 8px 4px;
-  margin-bottom: 4px;
-}
-
-.MCS__heatmap-day-label {
-  text-align: center;
-  font-size: 12px;
-  font-weight: 600;
-  opacity: 0.7;
+.MCS__day-label {
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  user-select: none;
+  z-index: 10;
+  line-height: 1;
 }
 </style>
