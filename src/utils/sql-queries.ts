@@ -167,3 +167,30 @@ export const TIME_HISTORY_QUERY = `
   WHERE ct.lang = ? AND r.day >= ? AND r.del = 0 AND r.type IN (0, 1, 2)
   GROUP BY r.day, review_type
   ORDER BY r.day DESC, review_type`;
+
+export const WORD_HISTORY_QUERY = `
+  SELECT 
+    wh.day,
+    wh.dictForm,
+    wh.secondary,
+    wh.partOfSpeech,
+    wh.knownStatus,
+    wh.prevKnownStatus
+  FROM wordHistory wh
+  WHERE wh.language = ? AND wh.day >= ? AND wh.del = 0
+  ORDER BY wh.day ASC, wh.dictForm, wh.secondary, wh.partOfSpeech`;
+
+export const WORD_HISTORY_QUERY_WITH_DECK = `
+  SELECT DISTINCT
+    wh.day,
+    wh.dictForm,
+    wh.secondary,
+    wh.partOfSpeech,
+    wh.knownStatus,
+    wh.prevKnownStatus
+  FROM wordHistory wh
+  JOIN CardWordRelation cwr ON wh.dictForm = cwr.dictForm
+  JOIN card c ON cwr.cardId = c.id
+  JOIN deck d ON c.deckId = d.id
+  WHERE wh.language = ? AND wh.day >= ? AND wh.del = 0 AND d.id = ? AND c.del = 0
+  ORDER BY wh.day ASC, wh.dictForm, wh.secondary, wh.partOfSpeech`;
