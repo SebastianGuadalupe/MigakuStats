@@ -47,3 +47,8 @@ export interface TimeHistoryResult {
   newCardsTime: number[];
   reviewsTime: number[];
 }
+
+export interface WordHistoryResult {
+  labels: string[];
+  knownCounts: number[];
+}

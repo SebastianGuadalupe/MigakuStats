@@ -3,22 +3,29 @@ import { ref, onMounted, onBeforeUnmount } from "vue";
 import FloatingButton from "./FloatingButton.vue";
 import DropdownMenu from "./DropdownMenu.vue";
 import UiToggleSwitch from "./UiToggleSwitch.vue";
+import UiTextInput from "./UiTextInput.vue";
 
 const props = defineProps<{
   buttonPos?: { top?: number; bottom?: number; left?: number; right?: number };
   settings: Array<{
     key: string;
     label: string;
-    type: "dropdown" | "radio" | "switch" | "group";
+    type: "dropdown" | "radio" | "switch" | "group" | "number";
     options?: string[];
     value: any;
     displayPrefix?: string;
+    min?: number;
+    max?: number;
+    step?: number;
     children?: Array<{
       key: string;
       label: string;
-      type: "dropdown" | "radio" | "switch";
+      type: "dropdown" | "radio" | "switch" | "number";
       options?: string[];
       value: any;
+      min?: number;
+      max?: number;
+      step?: number;
     }>;
   }>;
   modelValue: Record<string, any>;
@@ -124,6 +131,8 @@ function updateSetting(key: string, value: any) {
         v-if="isOpen"
         class="MCS__menu-popover UiActionSheet -desktop"
         ref="popoverRef"
+        @mousedown.stop
+        @click.stop
         :style="{
           minWidth: props.width ? props.width + 'px' : '220px',
           width: props.width ? props.width + 'px' : 'auto',
@@ -134,7 +143,7 @@ function updateSetting(key: string, value: any) {
           right: popoverPos.right + 'px',
         }"
       >
-        <form class="MCS__menu-settings -compact">
+        <form class="MCS__menu-settings -compact" @mousedown.stop @click.stop>
           <div
             v-for="setting in props.settings"
             :key="setting.key"
@@ -181,6 +190,17 @@ function updateSetting(key: string, value: any) {
               :modelValue="!!modelValue[setting.key]"
               @update:modelValue="(val) => updateSetting(setting.key, val)"
             />
+            <UiTextInput
+              v-else-if="setting.type === 'number'"
+              type="number"
+              :min="setting.min"
+              :max="setting.max"
+              :step="setting.step ?? 1"
+              :modelValue="modelValue[setting.key]"
+              @update:modelValue="(val) => updateSetting(setting.key, val)"
+              :id="'input-' + setting.key"
+              style="width: 100px;"
+            />
             <div v-else>Not implemented :(</div>
             <div
               v-if="
@@ -214,6 +234,17 @@ function updateSetting(key: string, value: any) {
                   :aria-label="'ID:' + child.key"
                   :modelValue="!!modelValue[child.key]"
                   @update:modelValue="(val) => updateSetting(child.key, val)"
+                />
+                <UiTextInput
+                  v-else-if="child.type === 'number'"
+                  type="number"
+                  :min="child.min"
+                  :max="child.max"
+                  :step="child.step ?? 1"
+                  :modelValue="modelValue[child.key]"
+                  @update:modelValue="(val) => updateSetting(child.key, val)"
+                  :id="'input-' + child.key"
+                  style="width: 100px;"
                 />
                 <div v-else>Not implemented :(</div>
               </div>
