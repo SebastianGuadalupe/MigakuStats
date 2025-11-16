@@ -149,6 +149,7 @@ const chartData = computed(() => {
   const datasets: any[] = isCumulative
     ? [
         {
+          type: "line",
           label: "Known Words",
           data: adjustedCounts,
           borderColor: themeColors.value.accent1,
@@ -159,11 +160,12 @@ const chartData = computed(() => {
           pointBackgroundColor: themeColors.value.accent1,
           pointBorderColor: themeColors.value.accent1,
           tension: 0.4,
-          fill: true,
+          fill: false,
         },
       ]
     : [
         {
+          type: "bar",
           label: "Known Words",
           data: knownCounts,
           backgroundColor: themeColors.value.accent1,
@@ -222,13 +224,7 @@ const chartOptions = computed(() => {
     },
     plugins: {
       legend: {
-        display: true,
-        position: "top" as const,
-        labels: {
-          color: themeColors.value.textColor,
-          usePointStyle: true,
-          pointStyle: "circle",
-        },
+        display: false,
       },
       tooltip: {
         mode: "index" as const,
