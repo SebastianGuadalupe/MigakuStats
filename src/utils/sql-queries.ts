@@ -29,6 +29,25 @@ export const WORDS_BY_STATUS_QUERY = `
   FROM WordList
   WHERE language = ? AND knownStatus = ? AND del = 0`;
 
+
+export const KANJI_BY_JLPT_QUERY = `
+  SELECT character, jlpt AS level
+  FROM characters
+  WHERE jlpt IS NOT NULL
+  ORDER BY jlpt DESC`;
+
+export const KANJI_BY_KANKEN_QUERY = `
+  SELECT character, kanken AS level
+  FROM characters
+  WHERE kanken IS NOT NULL
+  ORDER BY kanken DESC`;
+
+export const KANJI_BY_JOYO_QUERY = `
+  SELECT character, frequency_rank AS level
+  FROM characters
+  WHERE grade <= 8
+  ORDER BY frequency_rank ASC`;
+
 export const DECKS_QUERY = `
   SELECT id, name, lang 
   FROM deck 
@@ -172,3 +191,30 @@ export const TIME_HISTORY_QUERY = `
   WHERE ct.lang = ? AND r.day >= ? AND r.del = 0 AND r.type IN (0, 1, 2)
   GROUP BY r.day, review_type
   ORDER BY r.day DESC, review_type`;
+
+export const WORD_HISTORY_QUERY = `
+  SELECT 
+    wh.day,
+    wh.dictForm,
+    wh.secondary,
+    wh.partOfSpeech,
+    wh.knownStatus,
+    wh.prevKnownStatus
+  FROM wordHistory wh
+  WHERE wh.language = ? AND wh.day >= ? AND wh.del = 0
+  ORDER BY wh.day ASC, wh.dictForm, wh.secondary, wh.partOfSpeech`;
+
+export const WORD_HISTORY_QUERY_WITH_DECK = `
+  SELECT DISTINCT
+    wh.day,
+    wh.dictForm,
+    wh.secondary,
+    wh.partOfSpeech,
+    wh.knownStatus,
+    wh.prevKnownStatus
+  FROM wordHistory wh
+  JOIN CardWordRelation cwr ON wh.dictForm = cwr.dictForm
+  JOIN card c ON cwr.cardId = c.id
+  JOIN deck d ON c.deckId = d.id
+  WHERE wh.language = ? AND wh.day >= ? AND wh.del = 0 AND d.id = ? AND c.del = 0
+  ORDER BY wh.day ASC, wh.dictForm, wh.secondary, wh.partOfSpeech`;

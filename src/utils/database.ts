@@ -2,8 +2,8 @@ import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
 import pako from 'pako';
 import { logger } from './logger';
 import { DB_CONFIG, APP_SETTINGS, CHART_CONFIG, CHARACTER_STATS } from './constants';
-import { WORD_QUERY, WORD_QUERY_WITH_DECK, DUE_QUERY, CURRENT_DATE_QUERY, REVIEW_HISTORY_QUERY, INTERVAL_QUERY, STUDY_STATS_QUERY, PASS_RATE_QUERY, NEW_CARDS_QUERY, CARDS_ADDED_QUERY, CARDS_LEARNED_QUERY, TOTAL_NEW_CARDS_QUERY, CARDS_LEARNED_PER_DAY_QUERY, DECKS_QUERY, NEW_CARDS_TIME_QUERY, REVIEWS_TIME_QUERY, TIME_HISTORY_QUERY, WORDS_BY_STATUS_QUERY } from './sql-queries';
-import type { WordStats, DueStats, IntervalStats, StudyStats, ReviewHistoryResult, TimeHistoryResult, CharacterStats } from '../types/Database';
+import { WORD_QUERY, WORD_QUERY_WITH_DECK, DUE_QUERY, CURRENT_DATE_QUERY, REVIEW_HISTORY_QUERY, INTERVAL_QUERY, STUDY_STATS_QUERY, PASS_RATE_QUERY, NEW_CARDS_QUERY, CARDS_ADDED_QUERY, CARDS_LEARNED_QUERY, TOTAL_NEW_CARDS_QUERY, CARDS_LEARNED_PER_DAY_QUERY, DECKS_QUERY, NEW_CARDS_TIME_QUERY, REVIEWS_TIME_QUERY, TIME_HISTORY_QUERY, WORD_HISTORY_QUERY, WORD_HISTORY_QUERY_WITH_DECK, WORDS_BY_STATUS_QUERY } from './sql-queries';
+import type { WordStats, DueStats, IntervalStats, StudyStats, ReviewHistoryResult, TimeHistoryResult, WordHistoryResult, CharacterStats } from '../types/Database';
 import { Grouping, PeriodId } from '../stores/reviewHistory';
 import { Deck } from '../types/Deck';
 
@@ -1041,6 +1041,307 @@ export async function fetchTimeHistory(
   }
 }
 
+export async function fetchWordHistory(
+  language: string,
+  deckId: string = APP_SETTINGS.DEFAULT_DECK_ID,
+  periodId: PeriodId = "1 Month" as const,
+  grouping: Grouping = "Days" as const,
+  viewMode: 'cumulative' | 'daily' = 'cumulative'
+): Promise<WordHistoryResult | null> {
+  try {
+    const db = await loadDatabase();
+    if (!db) {
+      logger.error('Failed to load database');
+      return null;
+    }
+
+    let currentDate = new Date();
+    currentDate.setHours(0, 0, 0, 0);
+    let currentDayNumber = Math.floor(
+      (currentDate.getTime() - new Date(
+        CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY
+      ).getTime()) / (1000 * 60 * 60 * 24)
+    );
+
+    let period: string | number;
+    if (periodId === 'All time') {
+      period = 'All';
+    } else if (periodId === '1 Year') {
+      period = 12;
+    } else {
+      period = periodId.replace(' Months', '').replace('Months', '');
+    }
+    
+    let periodDays: number;
+    if (period === 'All') {
+      periodDays = currentDayNumber;
+    } else {
+      const periodMonths = typeof period === 'number' ? period : parseInt(period, 10) || 1;
+      const periodStartDate = new Date(currentDate);
+      periodStartDate.setMonth(currentDate.getMonth() - periodMonths);
+      periodDays = Math.round((currentDate.getTime() - periodStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    }
+    const periodDaysAgoDayNumber = currentDayNumber - periodDays;
+
+    const queryStartDay = viewMode === 'cumulative' ? 0 : periodDaysAgoDayNumber;
+
+    const useDeckFilter = deckId !== APP_SETTINGS.DEFAULT_DECK_ID;
+    const wordHistoryQuery = useDeckFilter ? WORD_HISTORY_QUERY_WITH_DECK : WORD_HISTORY_QUERY;
+    const wordHistoryParams = useDeckFilter ? [language, queryStartDay, deckId] : [language, queryStartDay];
+    
+    const wordHistoryResults = db.exec(wordHistoryQuery, wordHistoryParams);
+
+    const wordStatusMap = new Map<string, Map<number, { knownStatus: string; prevKnownStatus: string | null }>>();
+    
+    if (wordHistoryResults.length > 0 && wordHistoryResults[0].values.length > 0) {
+      wordHistoryResults[0].values.forEach((row: any[]) => {
+        const day = Number(row[0]) ?? 0;
+        const dictForm = String(row[1] ?? '');
+        const secondary = String(row[2] ?? '');
+        const partOfSpeech = String(row[3] ?? '');
+        const knownStatus = String(row[4] ?? '');
+        const prevKnownStatus = row[5] ? String(row[5]) : null;
+        const wordKey = `${dictForm}|${secondary}|${partOfSpeech}`;
+        
+        if (!wordStatusMap.has(wordKey)) {
+          wordStatusMap.set(wordKey, new Map());
+        }
+        wordStatusMap.get(wordKey)!.set(day, { knownStatus, prevKnownStatus });
+      });
+    }
+
+    let actualPeriodDays = periodDays;
+    if (period === 'All' && wordStatusMap.size > 0) {
+      let earliestDay = currentDayNumber;
+      wordStatusMap.forEach((dayMap) => {
+        dayMap.forEach((_, day) => {
+          earliestDay = Math.min(earliestDay, day);
+        });
+      });
+      const daysWithData = currentDayNumber - earliestDay + 1;
+      actualPeriodDays = Math.min(periodDays, daysWithData);
+    }
+
+    const dateLabels: string[] = [];
+    const knownCounts: number[] = [];
+    const dayMap = new Map<number, { index: number }>();
+    const aggregateMap = new Map<string, { index: number, knownWords?: Set<string>, netChange?: number }>();
+
+    let currentGroupKey: string | number | null = null;
+    let groupIndex = -1;
+    const startDate = new Date(CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY);
+    
+    for (let i = 0; i < actualPeriodDays; i++) {
+      const dayNumber = currentDayNumber - (actualPeriodDays - 1 - i);
+      const date = new Date(startDate);
+      date.setDate(date.getDate() + dayNumber);
+      date.setHours(0, 0, 0, 0);
+      let displayDate: string;
+      let groupKey: string | number;
+      
+      if (grouping === 'Weeks') {
+        const dayOfWeek = (date.getDay() + 6) % 7;
+        const weekStartDate = new Date(date);
+        weekStartDate.setDate(date.getDate() - dayOfWeek);
+        groupKey = weekStartDate.toISOString().split('T')[0];
+        if (groupKey !== currentGroupKey) {
+          displayDate = 'Week of ' + weekStartDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+          dateLabels.push(displayDate);
+          knownCounts.push(0);
+          currentGroupKey = groupKey;
+          groupIndex++;
+          if (viewMode === 'cumulative') {
+            aggregateMap.set(groupKey, { index: groupIndex, knownWords: new Set() });
+          } else {
+            aggregateMap.set(groupKey, { index: groupIndex, netChange: 0 });
+          }
+        }
+      } else if (grouping === 'Months') {
+        groupKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        if (groupKey !== currentGroupKey) {
+          displayDate = date.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+          dateLabels.push(displayDate);
+          knownCounts.push(0);
+          currentGroupKey = groupKey;
+          groupIndex++;
+          if (viewMode === 'cumulative') {
+            aggregateMap.set(groupKey, { index: groupIndex, knownWords: new Set() });
+          } else {
+            aggregateMap.set(groupKey, { index: groupIndex, netChange: 0 });
+          }
+        }
+      } else {
+        groupKey = dayNumber;
+        displayDate = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+        dateLabels.push(displayDate);
+        knownCounts.push(0);
+        dayMap.set(dayNumber, { index: i });
+      }
+    }
+
+    if (viewMode === 'cumulative') {
+      const cumulativeKnownWords = new Map<number, Set<string>>();
+
+      const wordInitialStatus = new Map<string, string | null>();
+      wordStatusMap.forEach((dayMap, wordKey) => {
+        let earliestDay = Infinity;
+        let earliestPrevStatus: string | null = null;
+        dayMap.forEach((statusInfo, day) => {
+          if (day < earliestDay) {
+            earliestDay = day;
+            earliestPrevStatus = statusInfo.prevKnownStatus;
+          }
+        });
+        if (earliestPrevStatus === 'KNOWN') {
+          wordInitialStatus.set(wordKey, 'KNOWN');
+        } else {
+          wordInitialStatus.set(wordKey, null);
+        }
+      });
+      
+      for (let i = 0; i < actualPeriodDays; i++) {
+        const dayNumber = currentDayNumber - (actualPeriodDays - 1 - i);
+        const knownWordsOnDay = new Set<string>();
+        
+        wordStatusMap.forEach((dayMap, wordKey) => {
+          let latestStatus: string | null = null;
+          let latestDay = -1;
+          
+          dayMap.forEach((statusInfo, day) => {
+            if (day <= dayNumber && day > latestDay) {
+              latestDay = day;
+              latestStatus = statusInfo.knownStatus;
+            }
+          });
+          
+          if (latestStatus === null) {
+            const initialStatus = wordInitialStatus.get(wordKey);
+            if (initialStatus === 'KNOWN') {
+              latestStatus = 'KNOWN';
+            }
+          }
+          
+          if (latestStatus === 'KNOWN') {
+            knownWordsOnDay.add(wordKey);
+          }
+        });
+        
+        cumulativeKnownWords.set(dayNumber, knownWordsOnDay);
+      }
+      
+      for (let i = 0; i < actualPeriodDays; i++) {
+        const dayNumber = currentDayNumber - (actualPeriodDays - 1 - i);
+        const date = new Date(startDate);
+        date.setDate(date.getDate() + dayNumber);
+        date.setHours(0, 0, 0, 0);
+        
+        const knownWordsOnDay = cumulativeKnownWords.get(dayNumber) || new Set();
+        
+        if (grouping === 'Weeks') {
+          const dayOfWeek = (date.getDay() + 6) % 7;
+          const weekStartDate = new Date(date);
+          weekStartDate.setDate(date.getDate() - dayOfWeek);
+          const groupKey = weekStartDate.toISOString().split('T')[0];
+          if (aggregateMap.has(groupKey)) {
+            const targetMapEntry = aggregateMap.get(groupKey);
+            const isLastDayOfWeek = date.getDay() === 0 || i === actualPeriodDays - 1;
+            if (targetMapEntry && (isLastDayOfWeek || i === actualPeriodDays - 1)) {
+              targetMapEntry.knownWords = new Set(knownWordsOnDay);
+            }
+          }
+        } else if (grouping === 'Months') {
+          const groupKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+          if (aggregateMap.has(groupKey)) {
+            const targetMapEntry = aggregateMap.get(groupKey);
+            const nextDate = new Date(date);
+            nextDate.setDate(date.getDate() + 1);
+            const isLastDayOfMonth = nextDate.getMonth() !== date.getMonth() || i === actualPeriodDays - 1;
+            if (targetMapEntry && (isLastDayOfMonth || i === actualPeriodDays - 1)) {
+              targetMapEntry.knownWords = new Set(knownWordsOnDay);
+            }
+          }
+        } else {
+          if (dayMap.has(dayNumber)) {
+            const targetIndex = dayMap.get(dayNumber)?.index ?? -1;
+            knownCounts[targetIndex] = knownWordsOnDay.size;
+          }
+        }
+      }
+      
+      if (grouping === 'Weeks' || grouping === 'Months') {
+        aggregateMap.forEach(entry => {
+          if (entry.knownWords) {
+            knownCounts[entry.index] = entry.knownWords.size;
+          }
+        });
+      }
+    } else {
+      for (let i = 0; i < actualPeriodDays; i++) {
+        const dayNumber = currentDayNumber - (actualPeriodDays - 1 - i);
+        const date = new Date(startDate);
+        date.setDate(date.getDate() + dayNumber);
+        date.setHours(0, 0, 0, 0);
+        
+        let netChange = 0;
+        wordStatusMap.forEach((dayMap) => {
+          const statusInfo = dayMap.get(dayNumber);
+          if (statusInfo) {
+            if (statusInfo.knownStatus === 'KNOWN' && statusInfo.prevKnownStatus !== 'KNOWN') {
+              netChange += 1;
+            }
+            if (statusInfo.prevKnownStatus === 'KNOWN' && statusInfo.knownStatus !== 'KNOWN') {
+              netChange -= 1;
+            }
+          }
+        });
+        
+        let targetIndex = -1;
+        
+        if (grouping === 'Weeks') {
+          const dayOfWeek = (date.getDay() + 6) % 7;
+          const weekStartDate = new Date(date);
+          weekStartDate.setDate(date.getDate() - dayOfWeek);
+          const groupKey = weekStartDate.toISOString().split('T')[0];
+          if (aggregateMap.has(groupKey)) {
+            const targetMapEntry = aggregateMap.get(groupKey);
+            targetIndex = targetMapEntry?.index ?? -1;
+            if (targetMapEntry && targetMapEntry.netChange !== undefined) {
+              targetMapEntry.netChange += netChange;
+            }
+          }
+        } else if (grouping === 'Months') {
+          const groupKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+          if (aggregateMap.has(groupKey)) {
+            const targetMapEntry = aggregateMap.get(groupKey);
+            targetIndex = targetMapEntry?.index ?? -1;
+            if (targetMapEntry && targetMapEntry.netChange !== undefined) {
+              targetMapEntry.netChange += netChange;
+            }
+          }
+        } else {
+          if (dayMap.has(dayNumber)) {
+            targetIndex = dayMap.get(dayNumber)?.index ?? -1;
+            knownCounts[targetIndex] = netChange;
+          }
+        }
+      }
+      
+      if (grouping === 'Weeks' || grouping === 'Months') {
+        aggregateMap.forEach(entry => {
+          if (entry.netChange !== undefined) {
+            knownCounts[entry.index] = entry.netChange;
+          }
+        });
+      }
+    }
+
+    return { labels: dateLabels, knownCounts };
+  } catch (error) {
+    logger.error('Error fetching word history:', error);
+    return null;
+  }
+}
+
 export function getDatabaseError(): string | null {
   return dbState.error;
 }
@@ -1048,4 +1349,3 @@ export function getDatabaseError(): string | null {
 export function isDatabaseLoading(): boolean {
   return dbState.isLoading;
 }
-

@@ -48,7 +48,17 @@ export interface TimeHistoryResult {
   reviewsTime: number[];
 }
 
+export interface WordHistoryResult {
+  labels: string[];
+  knownCounts: number[];
+}
+
 export interface CharacterStats {
   knownCharacters: string[];
   learningCharacters: string[];
+}
+
+export interface KanjiMetadata {
+  character: string;
+  level: number;
 }

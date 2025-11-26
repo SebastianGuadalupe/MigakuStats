@@ -60,5 +60,5 @@ export const CHARACTER_STATS = {
     KNOWN: "KNOWN",
     LEARNING: "LEARNING",
     UNKNOWN: "UNKNOWN",
-  }
+  },
 } as const;

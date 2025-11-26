@@ -16,6 +16,7 @@ import { CHART_CONFIG } from "../utils/constants";
 import { useCardsStore } from "../stores/cards";
 import FloatingMenuButton from "./FloatingMenuButton.vue";
 import CharacterGrid from "./CharacterGrid.vue";
+import { FILTER_OPTIONS } from "../utils/kanjiDatabase";
 
 ChartJS.register(ArcElement, Tooltip, Legend);
 
@@ -43,6 +44,7 @@ const characterStats = computed<CharacterStats | null>(
 const characterStatsContainer = ref<HTMLElement | null>(null);
 const isOverflowing = ref(false);
 const grouping = ref(0);
+const shouldShowCard = computed(() => language.value === 'ja');
 
 function checkOverflow() {
   if (!characterStatsContainer.value) return;
@@ -71,7 +73,7 @@ onMounted(async () => {
   nextTick(() => {
     checkOverflow();
   });
-  if (language.value) {
+  if (language.value === 'ja') {
     await characterStatsStore.refetch(language.value);
   }
 });
@@ -181,21 +183,37 @@ const menuSettings = [
     key: "grouping",
     label: "Grouping",
     type: "dropdown" as const,
-    options: ["All Characters"],
+    options: FILTER_OPTIONS.map(f => f.label),
     value: grouping.value,
+  },
+  {
+    key: "gridCellWidth",
+    label: "Grid Cell Width",
+    type: "number" as const,
+    min: 40,
+    max: 80,
+    step: 5,
+    value: characterStatsStore.gridCellWidth,
   },
 ];
 
 const menuValues = computed(() => ({
-  grouping: grouping.value,
+  grouping: FILTER_OPTIONS[grouping.value]?.label || FILTER_OPTIONS[0].label,
+  gridCellWidth: characterStatsStore.gridCellWidth,
 }));
 
-function updateMenuSettings(newVals: { grouping: number }) {
-  grouping.value = newVals.grouping;
+function updateMenuSettings(newVals: { grouping: string; gridCellWidth: number }) {
+  const selectedFilter = FILTER_OPTIONS.find(f => f.label === newVals.grouping);
+  if (selectedFilter) {
+    grouping.value = selectedFilter.id;
+  }
+  if (typeof newVals.gridCellWidth === 'number') {
+    characterStatsStore.setGridCellWidth(newVals.gridCellWidth);
+  }
 }
 
 watch([language], async ([lang], _prev, onCleanup) => {
-  if (!lang) return;
+  if (!lang || lang !== 'ja') return;
   const fetchPromise = characterStatsStore.fetchCharacterStatsIfNeeded(lang);
   let cancelled = false;
   onCleanup(() => (cancelled = true));
@@ -206,6 +224,7 @@ watch([language], async ([lang], _prev, onCleanup) => {
 
 <template>
   <div
+    v-if="shouldShowCard"
     :[componentHash]="true"
     class="UiCard -lesson Statistic__card"
     ref="characterStatsContainer"
@@ -227,7 +246,7 @@ watch([language], async ([lang], _prev, onCleanup) => {
         height: calc(100% - 56px);
       "
     >
-      <div :[componentHash]="true" class="MCS__character-chart">
+      <div :[componentHash]="true" class="MCS__character-chart" v-if="characterStats.knownCharacters.length">
         <div
           :[componentHash]="true"
           class="MCS__character-stats__details"
@@ -255,6 +274,10 @@ watch([language], async ([lang], _prev, onCleanup) => {
             :options="chartOptions"
           />
         </div>
+      </div>
+      <div v-else style="text-align: center; margin: 16px 0;">
+        <p>Known:0</p>
+        <p>Learning:0</p>
       </div>
       <CharacterGrid :filterId="grouping" />
       <FloatingMenuButton

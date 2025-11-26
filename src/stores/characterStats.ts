@@ -11,6 +11,7 @@ export const useCharacterStatsStore = defineStore('characterStats', () => {
   const error = ref('');
   const showUnknown = ref(true);
   const showIgnored = ref(true);
+  const gridCellWidth = ref(40);
 
   function loadSettingsFromStorage() {
     try {
@@ -19,16 +20,22 @@ export const useCharacterStatsStore = defineStore('characterStats', () => {
         const parsed = JSON.parse(data);
         if (typeof parsed.showUnknown === 'boolean') showUnknown.value = parsed.showUnknown;
         if (typeof parsed.showIgnored === 'boolean') showIgnored.value = parsed.showIgnored;
+        if (typeof parsed.gridCellWidth === 'number') gridCellWidth.value = parsed.gridCellWidth;
       }
     } catch {}
   }
   function saveSettingsToStorage() {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ showUnknown: showUnknown.value, showIgnored: showIgnored.value }));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ 
+      showUnknown: showUnknown.value, 
+      showIgnored: showIgnored.value,
+      gridCellWidth: gridCellWidth.value
+    }));
   }
   function setShowUnknown(val: boolean) { showUnknown.value = !!val; }
   function setShowIgnored(val: boolean) { showIgnored.value = !!val; }
+  function setGridCellWidth(val: number) { gridCellWidth.value = val; }
   loadSettingsFromStorage();
-  watch([showUnknown, showIgnored], saveSettingsToStorage);
+  watch([showUnknown, showIgnored, gridCellWidth], saveSettingsToStorage);
 
   function loadFromStorage() {
     try {
@@ -83,8 +90,10 @@ export const useCharacterStatsStore = defineStore('characterStats', () => {
     error,
     showUnknown,
     showIgnored,
+    gridCellWidth,
     setShowUnknown,
     setShowIgnored,
+    setGridCellWidth,
     setCharacterStats,
     clearCharacterStats,
     fetchCharacterStatsIfNeeded,
