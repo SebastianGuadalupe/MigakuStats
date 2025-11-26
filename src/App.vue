@@ -16,6 +16,7 @@ import TimeChart from "./components/TimeChart.vue";
 import CustomStat from "./components/CustomStat.vue";
 import ActionSheet from "./components/ActionSheet.vue";
 import FloatingButton from "./components/FloatingButton.vue";
+import CharacterStats from "./components/CharacterStats.vue";
 
 import { watch } from "vue";
 import { fetchAvailableDecks } from "./utils/database";
@@ -65,6 +66,8 @@ function getCardLabel(cardId: string) {
       return "Study statistics";
     case "TimeChart":
       return "Time statistics";
+    case "CharacterStats":
+      return "Character status";
     default:
       return cardId;
   }
@@ -99,6 +102,7 @@ const cardComponents: Record<string, any> = {
   ReviewIntervals,
   StudyStatistics,
   TimeChart,
+  CharacterStats,
 };
 
 watch(

@@ -24,6 +24,11 @@ export const WORD_QUERY_WITH_DECK = `
     WHERE w.language = ? AND w.del = 0 AND d.id = ? AND c.del = 0
   ) as w`;
 
+export const WORDS_BY_STATUS_QUERY = `
+  SELECT dictForm
+  FROM WordList
+  WHERE language = ? AND knownStatus = ? AND del = 0`;
+
 export const DECKS_QUERY = `
   SELECT id, name, lang 
   FROM deck 
