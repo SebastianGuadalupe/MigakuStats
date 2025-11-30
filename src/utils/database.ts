@@ -1,9 +1,9 @@
 import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
 import pako from 'pako';
 import { logger } from './logger';
-import { DB_CONFIG, APP_SETTINGS, CHART_CONFIG } from './constants';
-import { WORD_QUERY, WORD_QUERY_WITH_DECK, DUE_QUERY, CURRENT_DATE_QUERY, REVIEW_HISTORY_QUERY, INTERVAL_QUERY, STUDY_STATS_QUERY, PASS_RATE_QUERY, NEW_CARDS_QUERY, CARDS_ADDED_QUERY, CARDS_LEARNED_QUERY, TOTAL_NEW_CARDS_QUERY, CARDS_LEARNED_PER_DAY_QUERY, DECKS_QUERY, NEW_CARDS_TIME_QUERY, REVIEWS_TIME_QUERY, TIME_HISTORY_QUERY, WORD_HISTORY_QUERY, WORD_HISTORY_QUERY_WITH_DECK } from './sql-queries';
-import type { WordStats, DueStats, IntervalStats, StudyStats, ReviewHistoryResult, TimeHistoryResult, WordHistoryResult } from '../types/Database';
+import { DB_CONFIG, APP_SETTINGS, CHART_CONFIG, CHARACTER_STATS } from './constants';
+import { WORD_QUERY, WORD_QUERY_WITH_DECK, DUE_QUERY, CURRENT_DATE_QUERY, REVIEW_HISTORY_QUERY, INTERVAL_QUERY, STUDY_STATS_QUERY, PASS_RATE_QUERY, NEW_CARDS_QUERY, CARDS_ADDED_QUERY, CARDS_LEARNED_QUERY, TOTAL_NEW_CARDS_QUERY, CARDS_LEARNED_PER_DAY_QUERY, DECKS_QUERY, NEW_CARDS_TIME_QUERY, REVIEWS_TIME_QUERY, TIME_HISTORY_QUERY, WORD_HISTORY_QUERY, WORD_HISTORY_QUERY_WITH_DECK, WORDS_BY_STATUS_QUERY } from './sql-queries';
+import type { WordStats, DueStats, IntervalStats, StudyStats, ReviewHistoryResult, TimeHistoryResult, WordHistoryResult, CharacterStats } from '../types/Database';
 import { Grouping, PeriodId } from '../stores/reviewHistory';
 import { Deck } from '../types/Deck';
 
@@ -264,6 +264,58 @@ export async function fetchWordStats(
     }
   } catch (error) {
     logger.error('Error fetching word stats:', error);
+    return null;
+  }
+}
+
+export async function fetchCharacterStats(
+  language: string,
+): Promise<CharacterStats | null> {
+  try {
+    const db = await loadDatabase();
+    if (!db) {
+      logger.error('Failed to load database');
+      return null;
+    }
+
+    logger.debug(`Fetching character stats for language: ${language}`);
+
+    const knownCharactersSet = new Set<string>();
+    const learningCharactersSet = new Set<string>();
+
+    const knownResults = db.exec(WORDS_BY_STATUS_QUERY, [language, CHARACTER_STATS.CHARACTER_STATUS.KNOWN]);
+    if (knownResults.length > 0 && knownResults[0].values.length > 0) {
+      logger.debug('Known words count:', knownResults[0].values.length);
+      knownResults[0].values.forEach((row: any[]) => {
+        const dictForm = row[0];
+        for (const char of dictForm) {
+          if (CHARACTER_STATS.CHARACTER_REGEX.test(char)) {
+            knownCharactersSet.add(char);
+          }
+        }
+      });
+    }
+
+    const learningResults = db.exec(WORDS_BY_STATUS_QUERY, [language, CHARACTER_STATS.CHARACTER_STATUS.LEARNING]);
+    if (learningResults.length > 0 && learningResults[0].values.length > 0) {
+      logger.debug('Learning words count:', learningResults[0].values.length);
+      learningResults[0].values.forEach((row: any[]) => {
+        const dictForm = row[0];
+        for (const char of dictForm) {
+          if (CHARACTER_STATS.CHARACTER_REGEX.test(char) && !knownCharactersSet.has(char)) {
+            learningCharactersSet.add(char);
+          }
+        }
+      });
+    }
+
+    const knownCharacters = Array.from(knownCharactersSet);
+    const learningCharacters = Array.from(learningCharactersSet);
+
+    logger.debug('Character stats:', { knownCount: knownCharacters.length, learningCount: learningCharacters.length });
+    return { knownCharacters, learningCharacters };
+  } catch (error) {
+    logger.error('Error fetching character stats:', error);
     return null;
   }
 }

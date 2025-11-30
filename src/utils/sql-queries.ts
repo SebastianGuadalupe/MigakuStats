@@ -24,6 +24,30 @@ export const WORD_QUERY_WITH_DECK = `
     WHERE w.language = ? AND w.del = 0 AND d.id = ? AND c.del = 0
   ) as w`;
 
+export const WORDS_BY_STATUS_QUERY = `
+  SELECT dictForm
+  FROM WordList
+  WHERE language = ? AND knownStatus = ? AND del = 0`;
+
+
+export const KANJI_BY_JLPT_QUERY = `
+  SELECT character, jlpt AS level
+  FROM characters
+  WHERE jlpt IS NOT NULL
+  ORDER BY jlpt DESC`;
+
+export const KANJI_BY_KANKEN_QUERY = `
+  SELECT character, kanken AS level
+  FROM characters
+  WHERE kanken IS NOT NULL
+  ORDER BY kanken DESC`;
+
+export const KANJI_BY_JOYO_QUERY = `
+  SELECT character, frequency_rank AS level
+  FROM characters
+  WHERE grade <= 8
+  ORDER BY frequency_rank ASC`;
+
 export const DECKS_QUERY = `
   SELECT id, name, lang 
   FROM deck 
