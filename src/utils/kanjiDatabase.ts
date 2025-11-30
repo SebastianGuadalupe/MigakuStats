@@ -1,3 +1,5 @@
+// @ts-ignore
+import { GM_xmlhttpRequest } from 'monkey';
 import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
 import { logger } from './logger';
 import { KANJI_BY_JLPT_QUERY, KANJI_BY_KANKEN_QUERY, KANJI_BY_JOYO_QUERY } from './sql-queries';
@@ -76,8 +78,7 @@ async function loadKanjiDatabase(): Promise<Database | null> {
     logger.debug('Fetching kanji.db from GitHub...');
     
     const arrayBuffer = await new Promise<ArrayBuffer>((resolve, reject) => {
-      // @ts-ignore
-      GM.xmlHttpRequest({
+      GM_xmlhttpRequest({
         method: 'GET',
         url: KANJI_DB_URL,
         responseType: 'arraybuffer',

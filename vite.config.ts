@@ -20,7 +20,6 @@ export default defineConfig({
         'run-at': 'document-idle',
         supportURL: 'https://github.com/SebastianGuadalupe/MigakuStats/issues',
         homepageURL: 'https://github.com/SebastianGuadalupe/MigakuStats',
-        grant: ['GM.xmlHttpRequest'],
         connect: ['github.com', 'raw.githubusercontent.com'],
       },
       clientAlias: 'monkey',
