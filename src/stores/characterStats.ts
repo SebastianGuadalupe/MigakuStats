@@ -9,8 +9,6 @@ export const useCharacterStatsStore = defineStore('characterStats', () => {
   const characterStats = ref<CharacterStats|null>(null);
   const isLoading = ref(false);
   const error = ref('');
-  const showUnknown = ref(true);
-  const showIgnored = ref(true);
   const gridCellWidth = ref(40);
   const selectedGrouping = ref(0);
 
@@ -19,8 +17,6 @@ export const useCharacterStatsStore = defineStore('characterStats', () => {
       const data = localStorage.getItem(SETTINGS_KEY);
       if (data) {
         const parsed = JSON.parse(data);
-        if (typeof parsed.showUnknown === 'boolean') showUnknown.value = parsed.showUnknown;
-        if (typeof parsed.showIgnored === 'boolean') showIgnored.value = parsed.showIgnored;
         if (typeof parsed.gridCellWidth === 'number') gridCellWidth.value = parsed.gridCellWidth;
         if (typeof parsed.selectedGrouping === 'number') selectedGrouping.value = parsed.selectedGrouping;
       }
@@ -28,18 +24,14 @@ export const useCharacterStatsStore = defineStore('characterStats', () => {
   }
   function saveSettingsToStorage() {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify({ 
-      showUnknown: showUnknown.value, 
-      showIgnored: showIgnored.value,
       gridCellWidth: gridCellWidth.value,
       selectedGrouping: selectedGrouping.value
     }));
   }
-  function setShowUnknown(val: boolean) { showUnknown.value = !!val; }
-  function setShowIgnored(val: boolean) { showIgnored.value = !!val; }
   function setGridCellWidth(val: number) { gridCellWidth.value = val; }
   function setSelectedGrouping(val: number) { selectedGrouping.value = val; }
   loadSettingsFromStorage();
-  watch([showUnknown, showIgnored, gridCellWidth, selectedGrouping], saveSettingsToStorage);
+  watch([gridCellWidth, selectedGrouping], saveSettingsToStorage);
 
   function loadFromStorage() {
     try {
@@ -92,18 +84,15 @@ export const useCharacterStatsStore = defineStore('characterStats', () => {
     characterStats,
     isLoading,
     error,
-    showUnknown,
-    showIgnored,
     gridCellWidth,
     selectedGrouping,
-    setShowUnknown,
-    setShowIgnored,
     setGridCellWidth,
     setSelectedGrouping,
     setCharacterStats,
     clearCharacterStats,
     fetchCharacterStatsIfNeeded,
     refetch,
-    loadFromStorage
+    loadFromStorage,
+    loadSettingsFromStorage
   };
 });

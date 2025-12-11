@@ -30,20 +30,18 @@ const themeColors = computed(
 const language = computed(() => appStore.language);
 const cardsStore = useCardsStore();
 
-interface CharacterStats {
-  knownCharacters: string[];
-  learningCharacters: string[];
-}
-
 const error = computed(() => characterStatsStore.error);
 const isLoading = computed(() => characterStatsStore.isLoading);
-const characterStats = computed<CharacterStats | null>(
+const characterStats = computed(
   () => characterStatsStore.characterStats
 );
 
 const characterStatsContainer = ref<HTMLElement | null>(null);
 const isOverflowing = ref(false);
-const grouping = ref(0);
+const grouping = computed({
+  get: () => characterStatsStore.selectedGrouping,
+  set: (v: number) => characterStatsStore.setSelectedGrouping(v),
+});
 const shouldShowCard = computed(() => language.value === 'ja');
 
 function checkOverflow() {
@@ -178,7 +176,7 @@ const chartOptions = computed(() => {
   };
 });
 
-const menuSettings = [
+const menuSettings = computed(() => [
   {
     key: "grouping",
     label: "Grouping",
@@ -195,7 +193,7 @@ const menuSettings = [
     step: 5,
     value: characterStatsStore.gridCellWidth,
   },
-];
+]);
 
 const menuValues = computed(() => ({
   grouping: FILTER_OPTIONS[grouping.value]?.label || FILTER_OPTIONS[0].label,
@@ -212,7 +210,7 @@ function updateMenuSettings(newVals: { grouping: string; gridCellWidth: number }
   }
 }
 
-watch([language], async ([lang], _prev, onCleanup) => {
+watch(language, async (lang, _prev, onCleanup) => {
   if (!lang || lang !== 'ja') return;
   const fetchPromise = characterStatsStore.fetchCharacterStatsIfNeeded(lang);
   let cancelled = false;
