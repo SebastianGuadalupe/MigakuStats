@@ -53,3 +53,12 @@ export const CHART_CONFIG = {
   },
   ANIMATION_DELAY: 250
 } as const;
+
+export const CHARACTER_STATS = {
+  CHARACTER_REGEX: /\p{Unified_Ideograph}/u,
+  CHARACTER_STATUS: {
+    KNOWN: "KNOWN",
+    LEARNING: "LEARNING",
+    UNKNOWN: "UNKNOWN",
+  },
+} as const;
