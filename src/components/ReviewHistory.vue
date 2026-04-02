@@ -210,14 +210,23 @@ const chartOptions = computed(() => {
           label: function (context: any) {
             const datasetLabel = context.dataset.label || "";
             const value = context.parsed.y;
-            const allData = context.chart.data.datasets.reduce(
+            const reviewOnlyTotal = context.chart.data.datasets.reduce(
               (acc: number, ds: any) =>
-                acc +
-                (Array.isArray(ds.data) ? ds.data[context.dataIndex] ?? 0 : 0),
+                ds?.label === "New cards"
+                  ? acc
+                  : acc +
+                    (Array.isArray(ds.data) ? ds.data[context.dataIndex] ?? 0 : 0),
               0
             );
+
+            if (datasetLabel === "New cards") {
+              return `${datasetLabel}: ${value}`;
+            }
+
             const percentage =
-              allData > 0 ? ((value / allData) * 100).toFixed(1) : "0.0";
+              reviewOnlyTotal > 0
+                ? ((value / reviewOnlyTotal) * 100).toFixed(1)
+                : "0.0";
             return `${datasetLabel}: ${value} (${percentage}%)`;
           },
         },
