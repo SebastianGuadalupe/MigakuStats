@@ -21,6 +21,18 @@ const dbState: DatabaseState = {
   error: null,
 };
 
+const DAY_IN_MS = 1000 * 60 * 60 * 24;
+const CHART_START_UTC_MS = Date.UTC(2020, 0, 1);
+
+function getChartDayNumber(date: Date): number {
+  const utcDateMs = Date.UTC(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate()
+  );
+  return Math.floor((utcDateMs - CHART_START_UTC_MS) / DAY_IN_MS);
+}
+
 function initDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     logger.debug(`Opening IndexedDB: ${DB_CONFIG.DB_NAME}`);
@@ -343,8 +355,7 @@ export async function fetchDueStats(
     } catch(err) {
       logger.warn('Could not load study.activeDay.currentDate; using system date', err);
     }
-    const chartStartDate = new Date(2020, 0, 1, 0, 0, 0, 0);
-    currentDayNumber = Math.floor((currentDate.getTime() - chartStartDate.getTime()) / (1000 * 60 * 60 * 24));
+    currentDayNumber = getChartDayNumber(currentDate);
     let forecastDays: number;
     let endDayNumber: number;
     if (periodId === 'All time') {
@@ -503,7 +514,7 @@ export async function fetchStudyStats(
     let currentDate = new Date();
     currentDate.setHours(0, 0, 0, 0);
     const startDate = new Date(CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY);
-    let currentDayNumber = Math.floor((currentDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+    let currentDayNumber = getChartDayNumber(currentDate);
 
     let periodDays: number;
     let startDayNumber: number;
@@ -684,11 +695,7 @@ export async function fetchReviewHistory(
 
     let currentDate = new Date();
     currentDate.setHours(0, 0, 0, 0);
-    let currentDayNumber = Math.floor(
-      (currentDate.getTime() - new Date(
-        CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY
-      ).getTime()) / (1000 * 60 * 60 * 24)
-    );
+    let currentDayNumber = getChartDayNumber(currentDate);
 
     let period: string | number;
     if (periodId === 'All time') {
@@ -858,11 +865,7 @@ export async function fetchTimeHistory(
 
     let currentDate = new Date();
     currentDate.setHours(0, 0, 0, 0);
-    let currentDayNumber = Math.floor(
-      (currentDate.getTime() - new Date(
-        CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY
-      ).getTime()) / (1000 * 60 * 60 * 24)
-    );
+    let currentDayNumber = getChartDayNumber(currentDate);
 
     let period: string | number;
     if (periodId === 'All time') {
@@ -1057,11 +1060,7 @@ export async function fetchWordHistory(
 
     let currentDate = new Date();
     currentDate.setHours(0, 0, 0, 0);
-    let currentDayNumber = Math.floor(
-      (currentDate.getTime() - new Date(
-        CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY
-      ).getTime()) / (1000 * 60 * 60 * 24)
-    );
+    let currentDayNumber = getChartDayNumber(currentDate);
 
     let period: string | number;
     if (periodId === 'All time') {
