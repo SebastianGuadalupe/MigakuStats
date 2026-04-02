@@ -63,16 +63,16 @@ export const DUE_QUERY = `
     END as interval_range,
     COUNT(*) as count
   FROM card c
-  JOIN card_type ct ON c.cardTypeId = ct.id
-  WHERE ct.lang = ? AND c.due BETWEEN ? AND ? AND c.del = 0`;
+  JOIN deck d ON c.deckId = d.id
+  WHERE d.lang = ? AND c.due BETWEEN ? AND ? AND c.del = 0`;
 
 export const INTERVAL_QUERY = `
   SELECT
     ROUND(interval) as interval_group,
     COUNT(*) as count
   FROM card c
-  JOIN card_type ct ON c.cardTypeId = ct.id
-  WHERE ct.lang = ? AND c.del = 0 AND c.interval > 0
+  JOIN deck d ON c.deckId = d.id
+  WHERE d.lang = ? AND c.del = 0 AND c.interval > 0
   GROUP BY interval_group
   ORDER BY interval_group`;
 
@@ -83,9 +83,8 @@ export const REVIEW_HISTORY_QUERY = `
     COUNT(DISTINCT r.cardId) as review_count
   FROM review r
   JOIN card c ON r.cardId = c.id
-  JOIN card_type ct ON c.cardTypeId = ct.id
-  JOIN reviewHistory rh ON r.day = rh.day
-  WHERE ct.lang = ? AND r.day >= ? AND r.del = 0
+  JOIN deck d ON c.deckId = d.id
+  WHERE d.lang = ? AND r.day >= ? AND r.del = 0
   GROUP BY r.day, r.type
   ORDER BY r.day DESC, r.type`;
 
@@ -95,8 +94,8 @@ export const STUDY_STATS_QUERY = `
     COUNT(*) as total_reviews
   FROM review r
   JOIN card c ON r.cardId = c.id
-  JOIN card_type ct ON c.cardTypeId = ct.id
-  WHERE ct.lang = ? AND r.day BETWEEN ? AND ? AND r.del = 0`;
+  JOIN deck d ON c.deckId = d.id
+  WHERE d.lang = ? AND r.day BETWEEN ? AND ? AND r.del = 0`;
 
 export const CURRENT_DATE_QUERY = `
   SELECT entry 
@@ -109,31 +108,31 @@ export const PASS_RATE_QUERY = `
     SUM(CASE WHEN r.type = 1 THEN 1 ELSE 0 END) as failed_reviews
   FROM review r
   JOIN card c ON r.cardId = c.id
-  JOIN card_type ct ON c.cardTypeId = ct.id
-  WHERE ct.lang = ? AND r.day BETWEEN ? AND ? AND r.del = 0 AND r.type IN (1, 2);`;
+  JOIN deck d ON c.deckId = d.id
+  WHERE d.lang = ? AND r.day BETWEEN ? AND ? AND r.del = 0 AND r.type IN (1, 2);`;
 
 export const NEW_CARDS_QUERY = `
   SELECT 
     COUNT(DISTINCT r.cardId) as new_cards_reviewed
   FROM review r
   JOIN card c ON r.cardId = c.id
-  JOIN card_type ct ON c.cardTypeId = ct.id
-  WHERE ct.lang = ? AND r.day BETWEEN ? AND ? AND r.del = 0 AND r.type = 0;`;
+  JOIN deck d ON c.deckId = d.id
+  WHERE d.lang = ? AND r.day BETWEEN ? AND ? AND r.del = 0 AND r.type = 0;`;
 
 export const CARDS_ADDED_QUERY = `
   SELECT 
     COUNT(*) as cards_added
   FROM card c
-  JOIN card_type ct ON c.cardTypeId = ct.id
-  WHERE ct.lang = ? AND c.created >= ? AND c.created <= ? AND c.del = 0 AND c.lessonId = '';`;
+  JOIN deck d ON c.deckId = d.id
+  WHERE d.lang = ? AND c.created >= ? AND c.created <= ? AND c.del = 0 AND c.lessonId = '';`;
 
 export const CARDS_LEARNED_QUERY = `
   SELECT 
     COUNT(DISTINCT c.id) as cards_learned
   FROM review r
   JOIN card c ON r.cardId = c.id
-  JOIN card_type ct ON c.cardTypeId = ct.id
-  WHERE ct.lang = ? AND r.day BETWEEN ? AND ? AND r.del = 0 
+  JOIN deck d ON c.deckId = d.id
+  WHERE d.lang = ? AND r.day BETWEEN ? AND ? AND r.del = 0 
     AND c.interval >= 20 AND r.interval < 20 AND r.type = 2;`;
 
 export const TOTAL_NEW_CARDS_QUERY = `
@@ -141,16 +140,16 @@ export const TOTAL_NEW_CARDS_QUERY = `
     COUNT(DISTINCT r.cardId) as total_new_cards
   FROM review r
   JOIN card c ON r.cardId = c.id
-  JOIN card_type ct ON c.cardTypeId = ct.id
-  WHERE ct.lang = ? AND r.day BETWEEN ? AND ? AND c.del = 0 AND r.del = 0 AND r.type = 0;`;
+  JOIN deck d ON c.deckId = d.id
+  WHERE d.lang = ? AND r.day BETWEEN ? AND ? AND c.del = 0 AND r.del = 0 AND r.type = 0;`;
 
 export const CARDS_LEARNED_PER_DAY_QUERY = `
   SELECT 
     ROUND(COUNT(DISTINCT c.id) * 1.0 / NULLIF(COUNT(DISTINCT r.day), 0), 1) as cards_learned_per_day
   FROM review r
   JOIN card c ON r.cardId = c.id
-  JOIN card_type ct ON c.cardTypeId = ct.id
-  WHERE ct.lang = ? AND r.day BETWEEN ? AND ? AND r.del = 0 
+  JOIN deck d ON c.deckId = d.id
+  WHERE d.lang = ? AND r.day BETWEEN ? AND ? AND r.del = 0 
     AND c.interval >= 20 AND r.interval < 20 AND r.type = 2;`;
 
 export const NEW_CARDS_TIME_QUERY = `
@@ -160,8 +159,8 @@ export const NEW_CARDS_TIME_QUERY = `
     ROUND(AVG(r.duration), 1) as avg_time_seconds
   FROM review r
   JOIN card c ON r.cardId = c.id
-  JOIN card_type ct ON c.cardTypeId = ct.id
-  WHERE ct.lang = ? AND r.day BETWEEN ? AND ? AND r.del = 0 AND r.type = 0;`;
+  JOIN deck d ON c.deckId = d.id
+  WHERE d.lang = ? AND r.day BETWEEN ? AND ? AND r.del = 0 AND r.type = 0;`;
 
 export const REVIEWS_TIME_QUERY = `
   SELECT 
@@ -170,8 +169,8 @@ export const REVIEWS_TIME_QUERY = `
     ROUND(AVG(r.duration), 1) as avg_time_seconds
   FROM review r
   JOIN card c ON r.cardId = c.id
-  JOIN card_type ct ON c.cardTypeId = ct.id
-  WHERE ct.lang = ? AND r.day BETWEEN ? AND ? AND r.del = 0 AND r.type IN (1, 2);`;
+  JOIN deck d ON c.deckId = d.id
+  WHERE d.lang = ? AND r.day BETWEEN ? AND ? AND r.del = 0 AND r.type IN (1, 2);`;
 
 export const TIME_HISTORY_QUERY = `
   SELECT 
@@ -186,9 +185,8 @@ export const TIME_HISTORY_QUERY = `
     COUNT(*) as review_count
   FROM review r
   JOIN card c ON r.cardId = c.id
-  JOIN card_type ct ON c.cardTypeId = ct.id
-  JOIN reviewHistory rh ON r.day = rh.day
-  WHERE ct.lang = ? AND r.day >= ? AND r.del = 0 AND r.type IN (0, 1, 2)
+  JOIN deck d ON c.deckId = d.id
+  WHERE d.lang = ? AND r.day >= ? AND r.del = 0 AND r.type IN (0, 1, 2)
   GROUP BY r.day, review_type
   ORDER BY r.day DESC, review_type`;
 

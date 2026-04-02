@@ -349,7 +349,7 @@ export async function fetchDueStats(
     let endDayNumber: number;
     if (periodId === 'All time') {
       forecastDays = 3650;
-      let maxDueQuery = `SELECT MAX(due) as maxDue FROM card c\n                          JOIN card_type ct ON c.cardTypeId = ct.id\n                          WHERE ct.lang = ? AND c.due >= ? AND c.del = 0`;
+      let maxDueQuery = `SELECT MAX(due) as maxDue FROM card c\n                          JOIN deck d ON c.deckId = d.id\n                          WHERE d.lang = ? AND c.due >= ? AND c.del = 0`;
       const maxDueParams: (string|number)[] = [language, currentDayNumber];
       if (deckId !== APP_SETTINGS.DEFAULT_DECK_ID) {
         maxDueQuery += ' AND c.deckId = ?';
@@ -443,8 +443,8 @@ export async function fetchIntervalStats(
     const params: (string|number)[] = [language];
     if (deckId !== APP_SETTINGS.DEFAULT_DECK_ID) {
       intervalQuery = intervalQuery.replace(
-        'WHERE ct.lang = ? AND c.del = 0 AND c.interval > 0',
-        'WHERE ct.lang = ? AND c.del = 0 AND c.interval > 0 AND c.deckId = ?'
+        'WHERE d.lang = ? AND c.del = 0 AND c.interval > 0',
+        'WHERE d.lang = ? AND c.del = 0 AND c.interval > 0 AND c.deckId = ?'
       );
       params.push(deckId);
     }
@@ -509,7 +509,7 @@ export async function fetchStudyStats(
     let startDayNumber: number;
     let earliestReviewDayForAllTime: number | null = null;
     if (periodId === 'All time') {
-      let earliestReviewQuery = `SELECT MIN(r.day) as minDay FROM review r JOIN card c ON r.cardId = c.id JOIN card_type ct ON c.cardTypeId = ct.id WHERE ct.lang = ? AND r.del = 0`;
+      let earliestReviewQuery = `SELECT MIN(r.day) as minDay FROM review r JOIN card c ON r.cardId = c.id JOIN deck d ON c.deckId = d.id WHERE d.lang = ? AND r.del = 0`;
       const earliestParams: (string|number)[] = [language];
       if (deckId !== APP_SETTINGS.DEFAULT_DECK_ID) {
         earliestReviewQuery += ' AND c.deckId = ?';
@@ -714,8 +714,8 @@ export async function fetchReviewHistory(
     let reviewQueryParams: (string | number)[] = [language, periodDaysAgoDayNumber];
     if (deckId !== APP_SETTINGS.DEFAULT_DECK_ID) {
       reviewQuery = reviewQuery.replace(
-        'WHERE ct.lang = ? AND r.day >= ? AND r.del = 0',
-        'WHERE ct.lang = ? AND r.day >= ? AND r.del = 0 AND c.deckId = ?'
+        'WHERE d.lang = ? AND r.day >= ? AND r.del = 0',
+        'WHERE d.lang = ? AND r.day >= ? AND r.del = 0 AND c.deckId = ?'
       );
       reviewQueryParams.push(deckId);
     }
@@ -888,8 +888,8 @@ export async function fetchTimeHistory(
     let timeQueryParams: (string | number)[] = [language, periodDaysAgoDayNumber];
     if (deckId !== APP_SETTINGS.DEFAULT_DECK_ID) {
       timeQuery = timeQuery.replace(
-        'WHERE ct.lang = ? AND r.day >= ? AND r.del = 0',
-        'WHERE ct.lang = ? AND r.day >= ? AND r.del = 0 AND c.deckId = ?'
+        'WHERE d.lang = ? AND r.day >= ? AND r.del = 0',
+        'WHERE d.lang = ? AND r.day >= ? AND r.del = 0 AND c.deckId = ?'
       );
       timeQueryParams.push(deckId);
     }
