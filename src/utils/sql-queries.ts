@@ -2,26 +2,30 @@ import { WORD_STATUS } from "./constants";
 
 export const WORD_QUERY = `
   SELECT
-      SUM(CASE WHEN knownStatus = '${WORD_STATUS.KNOWN}' THEN 1 ELSE 0 END) as known_count,
-      SUM(CASE WHEN knownStatus = '${WORD_STATUS.LEARNING}' THEN 1 ELSE 0 END) as learning_count,
-      SUM(CASE WHEN knownStatus = '${WORD_STATUS.UNKNOWN}' THEN 1 ELSE 0 END) as unknown_count,
-      SUM(CASE WHEN knownStatus = '${WORD_STATUS.IGNORED}' THEN 1 ELSE 0 END) as ignored_count
+      COALESCE(SUM(CASE WHEN knownStatus = '${WORD_STATUS.KNOWN}' THEN 1 ELSE 0 END), 0) as known_count,
+      COALESCE(SUM(CASE WHEN knownStatus = '${WORD_STATUS.LEARNING}' THEN 1 ELSE 0 END), 0) as learning_count,
+      COALESCE(SUM(CASE WHEN knownStatus = '${WORD_STATUS.UNKNOWN}' THEN 1 ELSE 0 END), 0) as unknown_count,
+      COALESCE(SUM(CASE WHEN knownStatus = '${WORD_STATUS.IGNORED}' THEN 1 ELSE 0 END), 0) as ignored_count
   FROM WordList
   WHERE language = ? AND del = 0`;
 
 export const WORD_QUERY_WITH_DECK = `
   SELECT
-    SUM(CASE WHEN w.knownStatus = '${WORD_STATUS.KNOWN}' THEN 1 ELSE 0 END) as known_count,
-    SUM(CASE WHEN w.knownStatus = '${WORD_STATUS.LEARNING}' THEN 1 ELSE 0 END) as learning_count,
-    SUM(CASE WHEN w.knownStatus = '${WORD_STATUS.UNKNOWN}' THEN 1 ELSE 0 END) as unknown_count,
-    SUM(CASE WHEN w.knownStatus = '${WORD_STATUS.IGNORED}' THEN 1 ELSE 0 END) as ignored_count
+    COALESCE(SUM(CASE WHEN w.knownStatus = '${WORD_STATUS.KNOWN}' THEN 1 ELSE 0 END), 0) as known_count,
+    COALESCE(SUM(CASE WHEN w.knownStatus = '${WORD_STATUS.LEARNING}' THEN 1 ELSE 0 END), 0) as learning_count,
+    COALESCE(SUM(CASE WHEN w.knownStatus = '${WORD_STATUS.UNKNOWN}' THEN 1 ELSE 0 END), 0) as unknown_count,
+    COALESCE(SUM(CASE WHEN w.knownStatus = '${WORD_STATUS.IGNORED}' THEN 1 ELSE 0 END), 0) as ignored_count
   FROM (
-    SELECT DISTINCT w.dictForm, w.knownStatus
+    SELECT DISTINCT w.dictForm, w.secondary, w.partOfSpeech, w.knownStatus
     FROM WordList w
-    JOIN CardWordRelation cwr ON w.dictForm = cwr.dictForm
+    JOIN CardWordRelation cwr
+      ON w.dictForm = cwr.dictForm
+      AND w.secondary = cwr.secondary
+      AND w.partOfSpeech = cwr.partOfSpeech
+      AND w.language = cwr.language
     JOIN card c ON cwr.cardId = c.id
     JOIN deck d ON c.deckId = d.id
-    WHERE w.language = ? AND w.del = 0 AND d.id = ? AND c.del = 0
+    WHERE w.language = ? AND w.del = 0 AND d.id = ? AND c.del = 0 AND cwr.del = 0
   ) as w`;
 
 export const WORDS_BY_STATUS_QUERY = `
@@ -124,7 +128,7 @@ export const CARDS_ADDED_QUERY = `
     COUNT(*) as cards_added
   FROM card c
   JOIN deck d ON c.deckId = d.id
-  WHERE d.lang = ? AND c.created >= ? AND c.created <= ? AND c.del = 0 AND c.lessonId = '';`;
+  WHERE d.lang = ? AND c.created >= ? AND c.created <= ? AND c.del = 0 AND (c.lessonId IS NULL OR c.lessonId = '');`;
 
 export const CARDS_LEARNED_QUERY = `
   SELECT 
@@ -211,8 +215,12 @@ export const WORD_HISTORY_QUERY_WITH_DECK = `
     wh.knownStatus,
     wh.prevKnownStatus
   FROM wordHistory wh
-  JOIN CardWordRelation cwr ON wh.dictForm = cwr.dictForm
+  JOIN CardWordRelation cwr
+    ON wh.dictForm = cwr.dictForm
+    AND wh.secondary = cwr.secondary
+    AND wh.partOfSpeech = cwr.partOfSpeech
+    AND wh.language = cwr.language
   JOIN card c ON cwr.cardId = c.id
   JOIN deck d ON c.deckId = d.id
-  WHERE wh.language = ? AND wh.day >= ? AND wh.del = 0 AND d.id = ? AND c.del = 0
+  WHERE wh.language = ? AND wh.day >= ? AND wh.del = 0 AND d.id = ? AND c.del = 0 AND cwr.del = 0
   ORDER BY wh.day ASC, wh.dictForm, wh.secondary, wh.partOfSpeech`;

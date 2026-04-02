@@ -628,7 +628,7 @@ export async function fetchStudyStats(
       const successful_reviews = Number(passRateResults[0].values[0][0] ?? 0);
       const failed_reviews = Number(passRateResults[0].values[0][1] ?? 0);
       const total_answered = successful_reviews + failed_reviews;
-      pass_rate = total_answered > 0 ? Math.round(((successful_reviews - failed_reviews) / successful_reviews) * 100) : 0;
+      pass_rate = total_answered > 0 ? Math.round((successful_reviews / total_answered) * 100) : 0;
     }
 
     const new_cards_reviewed = Number(newCardsResults?.[0]?.values?.[0]?.[0] ?? 0);
