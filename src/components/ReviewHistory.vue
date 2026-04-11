@@ -51,11 +51,15 @@ const language = computed(() => appStore.language);
 const selectedDeckId = computed(() => appStore.selectedDeckId);
 const grouping = computed({
   get: () => reviewHistoryStore.grouping,
-  set: v => reviewHistoryStore.setGroupingAndPeriod(v, reviewHistoryStore.periodId)
+  set: v => reviewHistoryStore.setGroupingPeriodAndMode(v, reviewHistoryStore.periodId, reviewHistoryStore.passMode)
 });
 const periodId = computed({
   get: () => reviewHistoryStore.periodId,
-  set: v => reviewHistoryStore.setGroupingAndPeriod(reviewHistoryStore.grouping, v)
+  set: v => reviewHistoryStore.setGroupingPeriodAndMode(reviewHistoryStore.grouping, v, reviewHistoryStore.passMode)
+});
+const passMode = computed({
+  get: () => reviewHistoryStore.passMode,
+  set: v => reviewHistoryStore.setGroupingPeriodAndMode(reviewHistoryStore.grouping, reviewHistoryStore.periodId, v)
 });
 
 const reviewHistoryContainer = ref<HTMLElement | null>(null);
@@ -104,14 +108,15 @@ watch(
 );
 
 watch(
-  [language, selectedDeckId, periodId, grouping],
-  async ([lang, deckId, period, group], _prev, onCleanup) => {
+  [language, selectedDeckId, periodId, grouping, passMode],
+  async ([lang, deckId, period, group, mode], _prev, onCleanup) => {
     if (!lang) return;
     const fetchPromise = reviewHistoryStore.fetchReviewHistoryIfNeeded(
       lang,
       deckId,
       period,
-      group
+      group,
+      mode
     );
     let cancelled = false;
     onCleanup(() => (cancelled = true));
@@ -260,16 +265,28 @@ const reviewHistoryMenuSettings = [
     options: ["1 Month", "2 Months", "3 Months", "6 Months", "1 Year", "All time"],
     value: periodId.value,
     displayPrefix: "Last ",
+  },
+  {
+    key: "passMode",
+    label: "Pass mode",
+    type: "dropdown" as const,
+    options: ["All passes", "First try"],
+    value: passMode.value,
   }
 ];
 
 const menuSettingValues = computed(() => ({
   grouping: grouping.value,
   periodId: periodId.value,
+  passMode: passMode.value,
 }));
 
-function updateMenuSettings(newVals: { grouping: "Days" | "Weeks" | "Months"; periodId: "1 Month" | "2 Months" | "3 Months" | "6 Months" | "1 Year" | "All time" }) {
-  reviewHistoryStore.setGroupingAndPeriod(newVals.grouping, newVals.periodId);
+function updateMenuSettings(newVals: {
+  grouping: "Days" | "Weeks" | "Months";
+  periodId: "1 Month" | "2 Months" | "3 Months" | "6 Months" | "1 Year" | "All time";
+  passMode: "All passes" | "First try";
+}) {
+  reviewHistoryStore.setGroupingPeriodAndMode(newVals.grouping, newVals.periodId, newVals.passMode);
 }
 </script>
 

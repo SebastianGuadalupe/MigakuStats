@@ -2,9 +2,9 @@ import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
 import pako from 'pako';
 import { logger } from './logger';
 import { DB_CONFIG, APP_SETTINGS, CHART_CONFIG, CHARACTER_STATS } from './constants';
-import { WORD_QUERY, WORD_QUERY_WITH_DECK, DUE_QUERY, CURRENT_DATE_QUERY, REVIEW_HISTORY_QUERY, INTERVAL_QUERY, STUDY_STATS_QUERY, PASS_RATE_QUERY, NEW_CARDS_QUERY, CARDS_ADDED_QUERY, CARDS_LEARNED_QUERY, TOTAL_NEW_CARDS_QUERY, CARDS_LEARNED_PER_DAY_QUERY, DECKS_QUERY, NEW_CARDS_TIME_QUERY, REVIEWS_TIME_QUERY, TIME_HISTORY_QUERY, WORD_HISTORY_QUERY, WORD_HISTORY_QUERY_WITH_DECK, WORDS_BY_STATUS_QUERY } from './sql-queries';
+import { WORD_QUERY, WORD_QUERY_WITH_DECK, DUE_QUERY, CURRENT_DATE_QUERY, REVIEW_HISTORY_QUERY, REVIEW_HISTORY_FIRST_TRY_QUERY, INTERVAL_QUERY, STUDY_STATS_QUERY, PASS_RATE_QUERY, NEW_CARDS_QUERY, CARDS_ADDED_QUERY, CARDS_LEARNED_QUERY, TOTAL_NEW_CARDS_QUERY, CARDS_LEARNED_PER_DAY_QUERY, DECKS_QUERY, NEW_CARDS_TIME_QUERY, REVIEWS_TIME_QUERY, TIME_HISTORY_QUERY, WORD_HISTORY_QUERY, WORD_HISTORY_QUERY_WITH_DECK, WORDS_BY_STATUS_QUERY } from './sql-queries';
 import type { WordStats, DueStats, IntervalStats, StudyStats, ReviewHistoryResult, TimeHistoryResult, WordHistoryResult, CharacterStats } from '../types/Database';
-import { Grouping, PeriodId } from '../stores/reviewHistory';
+import { Grouping, PeriodId, PassMode } from '../stores/reviewHistory';
 import { Deck } from '../types/Deck';
 
 interface DatabaseState {
@@ -684,7 +684,8 @@ export async function fetchReviewHistory(
   language: string,
   deckId: string = APP_SETTINGS.DEFAULT_DECK_ID,
   periodId: PeriodId = "1 Month" as const,
-  grouping: Grouping = "Days" as const
+  grouping: Grouping = "Days" as const,
+  passMode: PassMode = "First try" as const
 ): Promise<ReviewHistoryResult | null> {
   try {
     const db = await loadDatabase();
@@ -717,7 +718,10 @@ export async function fetchReviewHistory(
     }
     const periodDaysAgoDayNumber = currentDayNumber - periodDays;
 
-    let reviewQuery = REVIEW_HISTORY_QUERY;
+    let reviewQuery =
+      passMode === "First try"
+        ? REVIEW_HISTORY_FIRST_TRY_QUERY
+        : REVIEW_HISTORY_QUERY;
     let reviewQueryParams: (string | number)[] = [language, periodDaysAgoDayNumber];
     if (deckId !== APP_SETTINGS.DEFAULT_DECK_ID) {
       reviewQuery = reviewQuery.replace(
@@ -842,7 +846,12 @@ export async function fetchReviewHistory(
         });
       }
     }
-    return { labels: dateLabels, counts: [type0Counts, type1Counts, type2Counts], typeLabels: ['New cards', 'Failed reviews', 'Successful reviews'] };
+    const typeLabels =
+      passMode === "First try"
+        ? ["New cards", "Failed cards", "Passed cards"]
+        : ["New cards", "Failed reviews", "Successful reviews"];
+
+    return { labels: dateLabels, counts: [type0Counts, type1Counts, type2Counts], typeLabels };
   } catch (error) {
     logger.error('Error fetching review history:', error);
     return null;

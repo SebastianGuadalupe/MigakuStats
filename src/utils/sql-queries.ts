@@ -92,6 +92,40 @@ export const REVIEW_HISTORY_QUERY = `
   GROUP BY r.day, r.type
   ORDER BY r.day DESC, r.type`;
 
+export const REVIEW_HISTORY_FIRST_TRY_QUERY = `
+  WITH daily_card_outcomes AS (
+    SELECT
+      r.day,
+      r.cardId,
+      MAX(CASE WHEN r.type = 0 THEN 1 ELSE 0 END) as has_new,
+      MAX(CASE WHEN r.type = 1 THEN 1 ELSE 0 END) as has_fail,
+      MAX(CASE WHEN r.type = 2 THEN 1 ELSE 0 END) as has_success
+    FROM review r
+    JOIN card c ON r.cardId = c.id
+    JOIN deck d ON c.deckId = d.id
+    WHERE d.lang = ? AND r.day >= ? AND r.del = 0 AND r.type IN (0, 1, 2)
+    GROUP BY r.day, r.cardId
+  )
+  SELECT
+    day,
+    type,
+    COUNT(*) as review_count
+  FROM (
+    SELECT day, cardId, 0 as type
+    FROM daily_card_outcomes
+    WHERE has_new = 1
+    UNION ALL
+    SELECT day, cardId, 1 as type
+    FROM daily_card_outcomes
+    WHERE has_fail = 1
+    UNION ALL
+    SELECT day, cardId, 2 as type
+    FROM daily_card_outcomes
+    WHERE has_fail = 0 AND has_success = 1
+  ) classified_reviews
+  GROUP BY day, type
+  ORDER BY day DESC, type`;
+
 export const STUDY_STATS_QUERY = `
   SELECT 
     COUNT(DISTINCT r.day) as days_studied,
@@ -107,13 +141,22 @@ export const CURRENT_DATE_QUERY = `
   WHERE key = 'study.activeDay.currentDate';`;
 
 export const PASS_RATE_QUERY = `
-  SELECT 
-    SUM(CASE WHEN r.type = 2 THEN 1 ELSE 0 END) as successful_reviews,
-    SUM(CASE WHEN r.type = 1 THEN 1 ELSE 0 END) as failed_reviews
-  FROM review r
-  JOIN card c ON r.cardId = c.id
-  JOIN deck d ON c.deckId = d.id
-  WHERE d.lang = ? AND r.day BETWEEN ? AND ? AND r.del = 0 AND r.type IN (1, 2);`;
+  WITH daily_card_outcomes AS (
+    SELECT
+      r.day,
+      r.cardId,
+      MAX(CASE WHEN r.type = 1 THEN 1 ELSE 0 END) as has_fail,
+      MAX(CASE WHEN r.type = 2 THEN 1 ELSE 0 END) as has_success
+    FROM review r
+    JOIN card c ON r.cardId = c.id
+    JOIN deck d ON c.deckId = d.id
+    WHERE d.lang = ? AND r.day BETWEEN ? AND ? AND r.del = 0 AND r.type IN (1, 2)
+    GROUP BY r.day, r.cardId
+  )
+  SELECT
+    SUM(CASE WHEN has_fail = 0 AND has_success = 1 THEN 1 ELSE 0 END) as successful_reviews,
+    SUM(CASE WHEN has_fail = 1 THEN 1 ELSE 0 END) as failed_reviews
+  FROM daily_card_outcomes;`;
 
 export const NEW_CARDS_QUERY = `
   SELECT 

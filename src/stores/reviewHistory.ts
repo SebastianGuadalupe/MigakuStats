@@ -7,6 +7,7 @@ const SETTINGS_KEY = 'migaku-reviewHistory-settings';
 
 export type PeriodId = "1 Month" | "2 Months" | "3 Months" | "6 Months" | "1 Year" | "All time";
 export type Grouping = "Days" | "Weeks" | "Months";
+export type PassMode = "All passes" | "First try";
 
 export const useReviewHistoryStore = defineStore('reviewHistory', () => {
   const reviewHistory = ref<ReviewHistoryResult|null>(null);
@@ -15,6 +16,7 @@ export const useReviewHistoryStore = defineStore('reviewHistory', () => {
 
   const grouping = ref<Grouping>('Days');
   const periodId = ref<PeriodId>('1 Month');
+  const passMode = ref<PassMode>('First try');
 
   function loadSettingsFromStorage() {
     try {
@@ -23,18 +25,20 @@ export const useReviewHistoryStore = defineStore('reviewHistory', () => {
         const parsed = JSON.parse(data);
         if (parsed.grouping && ['Days','Weeks','Months'].includes(parsed.grouping)) grouping.value = parsed.grouping;
         if (parsed.periodId && ["1 Month", "2 Months", "3 Months", "6 Months", "1 Year", "All time"].includes(parsed.periodId)) periodId.value = parsed.periodId;
+        if (parsed.passMode && ['All passes', 'First try'].includes(parsed.passMode)) passMode.value = parsed.passMode;
       }
     } catch {}
   }
   function saveSettingsToStorage() {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ grouping: grouping.value, periodId: periodId.value }));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ grouping: grouping.value, periodId: periodId.value, passMode: passMode.value }));
   }
-  function setGroupingAndPeriod(newGrouping: Grouping, newPeriodId: PeriodId) {
+  function setGroupingPeriodAndMode(newGrouping: Grouping, newPeriodId: PeriodId, newPassMode: PassMode) {
     grouping.value = newGrouping;
     periodId.value = newPeriodId;
+    passMode.value = newPassMode;
   }
   loadSettingsFromStorage();
-  watch([grouping, periodId], saveSettingsToStorage);
+  watch([grouping, periodId, passMode], saveSettingsToStorage);
 
   function loadFromStorage() {
     try {
@@ -53,11 +57,17 @@ export const useReviewHistoryStore = defineStore('reviewHistory', () => {
   }
   watch(reviewHistory, saveToStorage, { deep: true });
 
-  async function fetchReviewHistoryIfNeeded(lang: string, deckId: string, periodIdParam: PeriodId = periodId.value, groupingParam: Grouping = grouping.value) {
+  async function fetchReviewHistoryIfNeeded(
+    lang: string,
+    deckId: string,
+    periodIdParam: PeriodId = periodId.value,
+    groupingParam: Grouping = grouping.value,
+    passModeParam: PassMode = passMode.value
+  ) {
     if (!lang) return;
     isLoading.value = true;
     try {
-      const stats = await fetchReviewHistory(lang, deckId, periodIdParam, groupingParam);
+      const stats = await fetchReviewHistory(lang, deckId, periodIdParam, groupingParam, passModeParam);
       reviewHistory.value = stats;
       error.value = '';
     } catch (e) {
@@ -72,7 +82,7 @@ export const useReviewHistoryStore = defineStore('reviewHistory', () => {
     error.value = '';
     reviewHistory.value = null;
     await reloadDatabase();
-    await fetchReviewHistoryIfNeeded(lang, deckId, periodId.value, grouping.value);
+    await fetchReviewHistoryIfNeeded(lang, deckId, periodId.value, grouping.value, passMode.value);
   }
 
   function setReviewHistory(stats: ReviewHistoryResult|null) { reviewHistory.value = stats; }
@@ -84,12 +94,13 @@ export const useReviewHistoryStore = defineStore('reviewHistory', () => {
     error,
     grouping,
     periodId,
+    passMode,
     setReviewHistory,
     clearReviewHistory,
     fetchReviewHistoryIfNeeded,
     refetch,
     loadFromStorage,
-    setGroupingAndPeriod,
+    setGroupingPeriodAndMode,
     loadSettingsFromStorage,
   };
 });
