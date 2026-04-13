@@ -282,7 +282,7 @@ const chartOptions = computed(() => {
           },
           footer: function (context: any) {
             const values = context
-              .filter((i: any) => i.dataset.label.includes("Cumulative"))
+              .filter((i: any) => !i.dataset.label.includes("Cumulative"))
               .map((i: any) => i.parsed.y);
             return values.length > 0
               ? `Total: ${values.reduce((a: any, b: any) => a + b, 0)}`
