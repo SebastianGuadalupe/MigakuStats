@@ -1,3 +1,4 @@
+import { saveSetting } from '../utils/storage';
 import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
 import { APP_SETTINGS } from '../utils/constants';
@@ -18,9 +19,9 @@ export const useAppStore = defineStore('app', () => {
       if (stored) {
         const data = JSON.parse(stored);
         if (data.language) language.value = data.language;
-        if (data.theme) theme.value = data.theme;
+        if (['light', 'dark'].includes(data.theme)) theme.value = data.theme;
         if (data.selectedDeckId) selectedDeckId.value = data.selectedDeckId;
-        if (data.componentHash) componentHash.value = data.componentHash;
+        // Component scope belongs to the running build, not persisted host markup.
       }
     } catch (error) {
       console.error('Failed to load app state from localStorage:', error);
@@ -35,7 +36,7 @@ export const useAppStore = defineStore('app', () => {
         selectedDeckId: selectedDeckId.value,
         componentHash: componentHash.value,
       };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      saveSetting(STORAGE_KEY, JSON.stringify(data));
     } catch (error) {
       console.error('Failed to save app state to localStorage:', error);
     }
@@ -43,10 +44,16 @@ export const useAppStore = defineStore('app', () => {
 
   watch([language, theme, selectedDeckId, componentHash], saveToStorage);
 
-  function setLanguage(newLanguage: string | null) { language.value = newLanguage; }
-  function setTheme(newTheme: string | null) { theme.value = newTheme; }
+  function setLanguage(newLanguage: string | null) {
+    if (language.value !== newLanguage) resetDeckSelection();
+    language.value = newLanguage;
+  }
+  function setTheme(newTheme: string | null) { theme.value = newTheme === 'light' ? 'light' : 'dark'; }
   function setSelectedDeckId(newDeckId: string) { selectedDeckId.value = newDeckId; }
-  function setAvailableDecks(newAvailableDecks: Deck[]) { availableDecks.value = newAvailableDecks; }
+  function setAvailableDecks(newAvailableDecks: Deck[]) {
+    availableDecks.value = newAvailableDecks;
+    if (!newAvailableDecks.some(deck => deck.id === selectedDeckId.value && (deck.lang === language.value || deck.lang === 'all'))) resetDeckSelection();
+  }
   function setComponentHash(hash: string) { componentHash.value = hash; }
   function resetDeckSelection() { selectedDeckId.value = APP_SETTINGS.DEFAULT_DECK_ID; }
 

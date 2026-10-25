@@ -26,6 +26,7 @@ const styleObject = computed(() => ({
 
 <template>
   <button
+    class="MCS__floating-button"
     :class="[colorClass, customClass]"
     :style="styleObject"
     :aria-label="label"

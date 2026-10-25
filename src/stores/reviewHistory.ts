@@ -1,3 +1,4 @@
+import { saveSetting } from '../utils/storage';
 import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
 import { fetchReviewHistory, reloadDatabase } from '../utils/database';
@@ -12,6 +13,7 @@ export type PassMode = "All passes" | "First try";
 export const useReviewHistoryStore = defineStore('reviewHistory', () => {
   const reviewHistory = ref<ReviewHistoryResult|null>(null);
   const isLoading = ref(false);
+  let requestId = 0;
   const error = ref('');
 
   const grouping = ref<Grouping>('Days');
@@ -30,7 +32,7 @@ export const useReviewHistoryStore = defineStore('reviewHistory', () => {
     } catch {}
   }
   function saveSettingsToStorage() {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ grouping: grouping.value, periodId: periodId.value, passMode: passMode.value }));
+    saveSetting(SETTINGS_KEY, JSON.stringify({ grouping: grouping.value, periodId: periodId.value, passMode: passMode.value }));
   }
   function setGroupingPeriodAndMode(newGrouping: Grouping, newPeriodId: PeriodId, newPassMode: PassMode) {
     grouping.value = newGrouping;
@@ -50,7 +52,7 @@ export const useReviewHistoryStore = defineStore('reviewHistory', () => {
   }
   function saveToStorage() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(reviewHistory.value));
+      saveSetting(STORAGE_KEY, JSON.stringify(reviewHistory.value));
     } catch (err) {
       error.value = 'Failed to save review history.';
     }
@@ -64,16 +66,21 @@ export const useReviewHistoryStore = defineStore('reviewHistory', () => {
     groupingParam: Grouping = grouping.value,
     passModeParam: PassMode = passMode.value
   ) {
-    if (!lang) return;
+    const currentRequest = ++requestId;
+    if (!lang) { isLoading.value = false; return; }
     isLoading.value = true;
     try {
       const stats = await fetchReviewHistory(lang, deckId, periodIdParam, groupingParam, passModeParam);
+      if (currentRequest !== requestId) return;
+      if (!stats) throw new Error("Statistics could not be loaded");
       reviewHistory.value = stats;
       error.value = '';
     } catch (e) {
+      if (currentRequest !== requestId) return;
+      reviewHistory.value = null;
       error.value = 'Review history fetch failed';
     } finally {
-      isLoading.value = false;
+      if (currentRequest === requestId) isLoading.value = false;
     }
   }
 
@@ -81,7 +88,7 @@ export const useReviewHistoryStore = defineStore('reviewHistory', () => {
     isLoading.value = true;
     error.value = '';
     reviewHistory.value = null;
-    await reloadDatabase();
+    void reloadDatabase();
     await fetchReviewHistoryIfNeeded(lang, deckId, periodId.value, grouping.value, passMode.value);
   }
 

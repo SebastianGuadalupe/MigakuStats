@@ -1,3 +1,4 @@
+import { saveSetting } from '../utils/storage';
 import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
 import { fetchIntervalStats, reloadDatabase } from '../utils/database';
@@ -11,6 +12,7 @@ export type PercentileId = '50th' | '75th' | '95th' | '100th';
 export const useIntervalStatsStore = defineStore('intervalStats', () => {
   const intervalStats = ref<IntervalStats|null>(null);
   const isLoading = ref(false);
+  let requestId = 0;
   const error = ref('');
   const percentileId = ref<PercentileId>('75th');
 
@@ -24,7 +26,7 @@ export const useIntervalStatsStore = defineStore('intervalStats', () => {
     } catch {}
   }
   function saveSettingsToStorage() {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ percentileId: percentileId.value }));
+    saveSetting(SETTINGS_KEY, JSON.stringify({ percentileId: percentileId.value }));
   }
   function setPercentile(newPercentile: PercentileId) {
     percentileId.value = newPercentile;
@@ -42,7 +44,7 @@ export const useIntervalStatsStore = defineStore('intervalStats', () => {
   }
   function saveToStorage() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(intervalStats.value));
+      saveSetting(STORAGE_KEY, JSON.stringify(intervalStats.value));
     } catch (err) {
       error.value = 'Failed to save interval stats.';
     }
@@ -50,16 +52,21 @@ export const useIntervalStatsStore = defineStore('intervalStats', () => {
   watch(intervalStats, saveToStorage, { deep: true });
 
   async function fetchIntervalStatsIfNeeded(lang: string, deckId: string, percentileParam: PercentileId = percentileId.value) {
-    if (!lang) return;
+    const currentRequest = ++requestId;
+    if (!lang) { isLoading.value = false; return; }
     isLoading.value = true;
     try {
       const stats = await fetchIntervalStats(lang, deckId, percentileParam);
+      if (currentRequest !== requestId) return;
+      if (!stats) throw new Error("Statistics could not be loaded");
       intervalStats.value = stats;
       error.value = '';
     } catch (e) {
+      if (currentRequest !== requestId) return;
+      intervalStats.value = null;
       error.value = 'Interval stats fetch failed';
     } finally {
-      isLoading.value = false;
+      if (currentRequest === requestId) isLoading.value = false;
     }
   }
 
@@ -67,7 +74,7 @@ export const useIntervalStatsStore = defineStore('intervalStats', () => {
     isLoading.value = true;
     error.value = '';
     intervalStats.value = null;
-    await reloadDatabase();
+    void reloadDatabase();
     return fetchIntervalStatsIfNeeded(lang, deckId, percentileId.value);
   }
 

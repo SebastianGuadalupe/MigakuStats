@@ -10,12 +10,12 @@ export const APP_SETTINGS = {
 } as const;
 
 export const SELECTORS = {
-  STATISTICS_ELEMENT: ".Statistic",
+  STATISTICS_ELEMENT: ".StatisticV2, .Statistic",
   TARGET_ELEMENT: ".UiPageLayout",
   MIGAKU_MAIN: ".MIGAKU-SRS",
   VUE_CONTAINER_ID: "migaku-custom-stats-vue-container",
   ERROR_CONTAINER_ID: "migaku-custom-stats-error",
-  HEATMAP: ".Statistic__heatmap"
+  HEATMAP: ".StatisticV2__heatmap, .Statistic__heatmap"
 } as const;
 
 export const ROUTES = {

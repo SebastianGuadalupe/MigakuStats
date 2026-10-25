@@ -1,3 +1,4 @@
+import { saveSetting } from '../utils/storage';
 import { defineStore } from "pinia";
 import { ref, watch } from "vue";
 import { fetchStudyStats, reloadDatabase } from "../utils/database";
@@ -10,6 +11,7 @@ const SETTINGS_KEY = "migaku-studyStats-settings";
 export const useStudyStatsStore = defineStore("studyStats", () => {
   const studyStats = ref<StudyStats | null>(null);
   const isLoading = ref(false);
+  let requestId = 0;
   const error = ref("");
   const periodId = ref<PeriodId>("1 Month");
   const visibility = ref({
@@ -55,7 +57,7 @@ export const useStudyStatsStore = defineStore("studyStats", () => {
     } catch {}
   }
   function saveSettingsToStorage() {
-    localStorage.setItem(
+    saveSetting(
       SETTINGS_KEY,
       JSON.stringify({ periodId: periodId.value, visibility: visibility.value })
     );
@@ -82,7 +84,7 @@ export const useStudyStatsStore = defineStore("studyStats", () => {
   }
   function saveToStorage() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(studyStats.value));
+      saveSetting(STORAGE_KEY, JSON.stringify(studyStats.value));
     } catch (err) {
       error.value = "Failed to save study stats.";
     }
@@ -94,16 +96,21 @@ export const useStudyStatsStore = defineStore("studyStats", () => {
     deckId: string,
     periodParam: PeriodId = periodId.value
   ) {
-    if (!lang) return;
+    const currentRequest = ++requestId;
+    if (!lang) { isLoading.value = false; return; }
     isLoading.value = true;
     try {
       const stats = await fetchStudyStats(lang, deckId, periodParam);
+      if (currentRequest !== requestId) return;
+      if (!stats) throw new Error("Statistics could not be loaded");
       studyStats.value = stats;
       error.value = "";
     } catch (e) {
+      if (currentRequest !== requestId) return;
+      studyStats.value = null;
       error.value = "Study stats fetch failed";
     } finally {
-      isLoading.value = false;
+      if (currentRequest === requestId) isLoading.value = false;
     }
   }
 
@@ -111,7 +118,7 @@ export const useStudyStatsStore = defineStore("studyStats", () => {
     isLoading.value = true;
     error.value = "";
     studyStats.value = null;
-    await reloadDatabase();
+    void reloadDatabase();
     return fetchStudyStatsIfNeeded(lang, deckId, periodId.value);
   }
 

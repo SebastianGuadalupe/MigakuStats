@@ -1,129 +1,116 @@
 import { createApp } from 'vue';
-import { createPinia } from 'pinia';
+import { createPinia, disposePinia } from 'pinia';
 import App from './App.vue';
-import { waitForElement } from './utils/observers';
-import { SELECTORS, ROUTES } from './utils/constants';
+import { SELECTORS, ROUTES, ATTRIBUTES } from './utils/constants';
 import { logger } from './utils/logger';
 import { useAppStore } from './stores/app';
-// @ts-ignore
-import { GM_addStyle } from 'monkey';
+import { clearDatabaseCache } from './utils/database';
+import './integration.css';
+import { findStatisticsPage, parkNativeNode } from './utils/pageIntegration';
+import { useCardsStore } from './stores/cards';
+import { getStudyDate, getChartDayNumber, getNextStudyRollover } from './utils/studyDay';
 
-const VUE_CONTAINER_ID = SELECTORS.VUE_CONTAINER_ID;
-
-let vueAppInstance: ReturnType<typeof createApp> | null = null;
-let vueContainer: HTMLElement | null = null;
-let isMounting = false;
-
-async function mountApp() {
-  if (isMounting || vueAppInstance || (vueContainer && document.getElementById(VUE_CONTAINER_ID))) {
-    logger.debug('Vue app already mounting or mounted.');
-    return;
-  }
-  isMounting = true;
-  try {
-    logger.debug('Waiting for main Migaku element...');
-    const mainElement = await waitForElement(SELECTORS.MIGAKU_MAIN);
-    if (!mainElement) {
-      logger.error('Main Migaku element not found. App will not mount.');
-      return;
-    }
-    logger.debug('Main element found. Creating Vue app.');
-    const app = createApp(App);
-    const pinia = createPinia();
-    app.use(pinia);
-    const appStore = useAppStore();
-    appStore.loadFromStorage();
-    const statisticsDiv = await waitForElement(SELECTORS.STATISTICS_ELEMENT);
-    if (!statisticsDiv) {
-      logger.error("Statistics element not found, cannot display stats.");
-      return;
-    }
-
-    // Get the component hash
-    const componentHash = statisticsDiv.attributes[0].nodeName;
-    appStore.setComponentHash(componentHash);
-    logger.debug(`Component hash set to: ${componentHash}`);
-
-
-    const statsContainer = await waitForElement(SELECTORS.TARGET_ELEMENT);
-    if (!statsContainer || !(statsContainer instanceof HTMLElement)) {
-      logger.error("Target container not found, cannot display stats.");
-      return;
-    }
-
-    // Make the page full width
-    statsContainer.style.maxWidth = "100vw";
-
-    // Add styles to the page
-    GM_addStyle(`.Statistic__card[${componentHash}] {
-      width: 100% !important;
-      height: 100% !important;
-      max-width: 1080px !important;
-    }`);
-
-    // Move heatmap card container to the new div
-    const children = statsContainer.children;
-    const newDiv = document.createElement("div");
-    newDiv.style.height = "100%";
-    newDiv.id = "original-stats-card-container";
-    Array.from(children).forEach(child => {
-      newDiv.appendChild(child);
-    });
-    statsContainer.appendChild(newDiv);
-
-    logger.debug("Mounting Vue app to container");
-    vueContainer = document.createElement('div');
-    vueContainer.id = VUE_CONTAINER_ID;
-    statsContainer.appendChild(vueContainer);
-    vueAppInstance = app;
-    vueAppInstance.mount(vueContainer);
-  } finally {
-    isMounting = false;
-  }
-}
+let mounted: { app: ReturnType<typeof createApp>; pinia: ReturnType<typeof createPinia>;
+  container: HTMLElement; layout: HTMLElement; slots: ReturnType<typeof parkNativeNode>[];
+  cleanupStyles: () => void;
+  studyDay: number; originalWidth: string } | null = null;
 
 function unmountApp() {
-  if (vueAppInstance && vueContainer) {
-    logger.debug('Unmounting Vue app.');
-    vueAppInstance.unmount();
-    if (vueContainer.parentNode) {
-      vueContainer.parentNode.removeChild(vueContainer);
-    }
-    vueAppInstance = null;
-    vueContainer = null;
-  }
-  isMounting = false;
+  if (!mounted) return;
+  const state = mounted;
+  mounted = null;
+  state.app.unmount();
+  disposePinia(state.pinia);
+  state.cleanupStyles();
+  for (const slot of state.slots) slot.restore();
+  state.container.remove();
+  state.layout.style.maxWidth = state.originalWidth;
+  clearDatabaseCache();
 }
 
-function handleRouteChange() {
-  if (window.location.pathname === ROUTES.STATS_ROUTE) {
-    mountApp();
-  } else {
-    unmountApp();
-  }
-}
-
-function monkeyPatchHistoryMethods() {
-  const originalPushState = history.pushState;
-  const originalReplaceState = history.replaceState;
-  history.pushState = function (...args) {
-    const ret = originalPushState.apply(this, args);
-    window.dispatchEvent(new Event('locationchange'));
-    return ret;
+function reconcile() {
+  const onStats = window.location.pathname.replace(/\/$/, '') === ROUTES.STATS_ROUTE;
+  if (mounted && (!onStats || !mounted.container.isConnected || mounted.studyDay !== getChartDayNumber(getStudyDate()))) unmountApp();
+  if (!onStats || mounted) return;
+  const host = findStatisticsPage();
+  if (!host || document.getElementById(SELECTORS.VUE_CONTAINER_ID)) return;
+  const { layout, activity, hero } = host;
+  const pinia = createPinia();
+  const app = createApp(App).use(pinia);
+  const store = useAppStore(pinia);
+  store.loadFromStorage();
+  store.setLanguage(document.querySelector(SELECTORS.MIGAKU_MAIN)?.getAttribute(ATTRIBUTES.LANG_SELECTED) ?? null);
+  store.setTheme(document.documentElement.getAttribute(ATTRIBUTES.THEME));
+  store.setComponentHash('data-mcs');
+  const cards = useCardsStore(pinia);
+  cards.setStreakHeroAvailable(!!hero);
+  const slots = [parkNativeNode(activity, 'original-stats-card-container')];
+  if (hero) slots.push(parkNativeNode(hero, 'original-streak-hero-container'));
+  const container = document.createElement('div');
+  container.id = SELECTORS.VUE_CONTAINER_ID;
+  container.dataset.mcsPage = host.version;
+  layout.append(container);
+  // Match the native activity card at this viewport, including theme changes.
+  const syncStyles = () => {
+    if (host.version !== 'modern') return;
+    const style = getComputedStyle(activity);
+    container.style.setProperty('--mcs-card-radius', style.borderRadius);
+    container.style.setProperty('--mcs-card-padding', style.padding);
+    container.style.setProperty('--mcs-card-shadow', style.boxShadow);
   };
-  history.replaceState = function (...args) {
-    const ret = originalReplaceState.apply(this, args);
-    window.dispatchEvent(new Event('locationchange'));
-    return ret;
+  syncStyles();
+  window.addEventListener('resize', syncStyles);
+  const styleObserver = new MutationObserver(syncStyles);
+  styleObserver.observe(document.documentElement, { attributes: true, attributeFilter: [ATTRIBUTES.THEME] });
+  const title = host.page.querySelector<HTMLElement>('.AppHeaderV2__title');
+  const originalTitle = title?.textContent ?? '';
+  const updateTitle = () => {
+    if (title && title.textContent !== 'Stats') title.textContent = 'Stats';
+  };
+  const titleObserver = new MutationObserver(updateTitle);
+  if (title) {
+    updateTitle();
+    titleObserver.observe(title, { childList: true, characterData: true, subtree: true });
+  }
+  const cleanupStyles = () => {
+    window.removeEventListener('resize', syncStyles);
+    styleObserver.disconnect();
+    titleObserver.disconnect();
+    if (title) title.textContent = originalTitle;
+  };
+  mounted = { app, pinia, container, layout, slots, cleanupStyles, studyDay: getChartDayNumber(getStudyDate()), originalWidth: layout.style.maxWidth };
+  layout.style.maxWidth = '1080px';
+  try { app.mount(container); }
+  catch (error) { logger.error('Could not mount custom statistics', error); unmountApp(); }
+}
+
+let queued = false;
+function scheduleReconcile() {
+  if (queued) return;
+  queued = true;
+  requestAnimationFrame(() => { queued = false; reconcile(); });
+}
+for (const method of ['pushState', 'replaceState'] as const) {
+  const original = history[method];
+  history[method] = function (...args: Parameters<History['pushState']>) {
+    original.apply(this, args);
+    scheduleReconcile();
   };
 }
+window.addEventListener('popstate', scheduleReconcile);
+window.addEventListener('hashchange', scheduleReconcile);
+// Retry when the route finishes rendering, or its root is replaced.
+new MutationObserver(scheduleReconcile).observe(document.body, { childList: true, subtree: true });
+scheduleReconcile();
 
-function setupRouteListener() {
-  monkeyPatchHistoryMethods();
-  window.addEventListener('popstate', handleRouteChange);
-  window.addEventListener('locationchange', handleRouteChange);
-  window.addEventListener('hashchange', handleRouteChange);
+// Refresh date-dependent queries even if this tab stays open overnight.
+function scheduleStudyRollover() {
+  window.setTimeout(() => {
+    scheduleReconcile();
+    scheduleStudyRollover();
+  }, Math.max(1, getNextStudyRollover().getTime() - Date.now()));
 }
-
-setupRouteListener();
-handleRouteChange();
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) scheduleReconcile();
+});
+scheduleStudyRollover();

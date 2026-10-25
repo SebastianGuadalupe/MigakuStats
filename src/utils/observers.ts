@@ -3,31 +3,19 @@ import { logger } from './logger';
 
 export function waitForElement(selector: string, timeout: number = APP_SETTINGS.DEFAULT_TIMEOUT): Promise<Element | null> {
   return new Promise((resolve) => {
-    const observer = new MutationObserver((_, obs) => {
-      const element = document.querySelector(selector);
-      if (element) {
-        logger.debug(`Element '${selector}' detected.`);
-        obs.disconnect();
-        resolve(element);
-      }
-    });
-
-    const element = document.querySelector(selector);
-    if (element) {
-      logger.debug(`Element '${selector}' found immediately.`);
+    const existing = document.querySelector(selector);
+    if (existing) { resolve(existing); return; }
+    const finish = (element: Element | null) => {
+      observer.disconnect();
+      clearTimeout(timer);
       resolve(element);
-      return;
-    }
-
+    };
+    const observer = new MutationObserver(() => {
+      const element = document.querySelector(selector);
+      if (element) finish(element);
+    });
+    const timer = setTimeout(() => finish(document.querySelector(selector)), timeout);
     observer.observe(document.body, { childList: true, subtree: true });
-
-    setTimeout(() => {
-      if (!document.querySelector(selector)) {
-        observer.disconnect();
-        logger.debug(`Element '${selector}' not found via MutationObserver after ${timeout}ms.`);
-        resolve(null);
-      }
-    }, timeout);
   });
 }
 

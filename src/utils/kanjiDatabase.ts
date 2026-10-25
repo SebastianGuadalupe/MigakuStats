@@ -5,7 +5,7 @@ import { logger } from './logger';
 import { KANJI_BY_JLPT_QUERY, KANJI_BY_KANKEN_QUERY, KANJI_BY_JOYO_QUERY } from './sql-queries';
 import type { KanjiMetadata } from '../types/Database';
 
-const KANJI_DB_URL = 'https://github.com/migaku-official/Migaku-Kanji-Addon/blob/main/addon/kanji.db?raw=true';
+const KANJI_DB_URL = 'https://raw.githubusercontent.com/migaku-official/Migaku-Kanji-Addon/main/addon/kanji.db';
 
 interface KanjiDatabaseState {
   sql: SqlJsStatic | null;
@@ -55,20 +55,16 @@ async function initializeSqlEngine(): Promise<SqlJsStatic | null> {
   }
 }
 
-async function loadKanjiDatabase(): Promise<Database | null> {
+let kanjiLoad: Promise<Database | null> | null = null;
+function loadKanjiDatabase(): Promise<Database | null> {
+  if (kanjiLoad) return kanjiLoad;
+  kanjiLoad = readKanjiDatabase().finally(() => { kanjiLoad = null; });
+  return kanjiLoad;
+}
+async function readKanjiDatabase(): Promise<Database | null> {
   try {
     if (kanjiDbState.db) {
       logger.debug('Using existing kanji database instance');
-      return kanjiDbState.db;
-    }
-
-    if (kanjiDbState.isLoading) {
-      logger.debug('Kanji database already loading, waiting...');
-      let attempts = 0;
-      while (kanjiDbState.isLoading && attempts < 50) {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        attempts++;
-      }
       return kanjiDbState.db;
     }
 
@@ -82,8 +78,11 @@ async function loadKanjiDatabase(): Promise<Database | null> {
         method: 'GET',
         url: KANJI_DB_URL,
         responseType: 'arraybuffer',
+        timeout: 30000,
+        ontimeout: () => reject(new Error('Kanji database download timed out')),
+        onabort: () => reject(new Error('Kanji database download cancelled')),
         onload: (response: any) => {
-          if (!response || !response.response) {
+          if (!response || response.status < 200 || response.status >= 300 || !response.response) {
             reject(new Error('Empty response when fetching kanji.db'));
             return;
           }
@@ -133,6 +132,7 @@ export function clearKanjiDatabaseCache(): void {
 
 export async function reloadKanjiDatabase(): Promise<Database | null> {
   logger.debug('Reloading kanji database');
+  if (kanjiLoad) return kanjiLoad;
   clearKanjiDatabaseCache();
   return loadKanjiDatabase();
 }

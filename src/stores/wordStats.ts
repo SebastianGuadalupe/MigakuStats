@@ -1,3 +1,4 @@
+import { saveSetting } from '../utils/storage';
 import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
 import { fetchWordStats as dbFetchWordStats, reloadDatabase } from '../utils/database';
@@ -8,6 +9,7 @@ const SETTINGS_KEY = 'migaku-wordstats-settings';
 export const useWordStatsStore = defineStore('wordStats', () => {
   const wordStats = ref<WordStats|null>(null);
   const isLoading = ref(false);
+  let requestId = 0;
   const error = ref('');
   const showUnknown = ref(true);
   const showIgnored = ref(true);
@@ -23,7 +25,7 @@ export const useWordStatsStore = defineStore('wordStats', () => {
     } catch {}
   }
   function saveSettingsToStorage() {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ showUnknown: showUnknown.value, showIgnored: showIgnored.value }));
+    saveSetting(SETTINGS_KEY, JSON.stringify({ showUnknown: showUnknown.value, showIgnored: showIgnored.value }));
   }
   function setShowUnknown(val: boolean) { showUnknown.value = !!val; }
   function setShowIgnored(val: boolean) { showIgnored.value = !!val; }
@@ -40,7 +42,7 @@ export const useWordStatsStore = defineStore('wordStats', () => {
   }
   function saveToStorage() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(wordStats.value));
+      saveSetting(STORAGE_KEY, JSON.stringify(wordStats.value));
     } catch (err) {
       error.value = 'Failed to save word stats.';
     }
@@ -48,17 +50,22 @@ export const useWordStatsStore = defineStore('wordStats', () => {
   watch(wordStats, saveToStorage, { deep: true });
 
   async function fetchWordStatsIfNeeded(lang: string, deckId: string) {
-    if (!lang) return;
+    const currentRequest = ++requestId;
+    if (!lang) { isLoading.value = false; return; }
     isLoading.value = true;
     try {
       const stats = await dbFetchWordStats(lang, deckId);
+      if (currentRequest !== requestId) return;
+      if (!stats) throw new Error("Statistics could not be loaded");
       if (!stats) throw new Error('No word stats found');
       wordStats.value = stats;
       error.value = '';
     } catch (e) {
+      if (currentRequest !== requestId) return;
+      wordStats.value = null;
       error.value = 'Fetch failed';
     } finally {
-      isLoading.value = false;
+      if (currentRequest === requestId) isLoading.value = false;
     }
   }
 
@@ -66,7 +73,7 @@ export const useWordStatsStore = defineStore('wordStats', () => {
     isLoading.value = true;
     error.value = '';
     wordStats.value = null;
-    await reloadDatabase();
+    void reloadDatabase();
     return fetchWordStatsIfNeeded(lang, deckId);
   }
 

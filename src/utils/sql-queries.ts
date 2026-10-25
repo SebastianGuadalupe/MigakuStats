@@ -25,7 +25,7 @@ export const WORD_QUERY_WITH_DECK = `
       AND w.language = cwr.language
     JOIN card c ON cwr.cardId = c.id
     JOIN deck d ON c.deckId = d.id
-    WHERE w.language = ? AND w.del = 0 AND d.id = ? AND c.del = 0 AND cwr.del = 0
+    WHERE w.language = ? AND w.del = 0 AND d.id = ? AND c.del = 0 AND cwr.del = 0 AND d.del = 0
   ) as w`;
 
 export const WORDS_BY_STATUS_QUERY = `
@@ -60,7 +60,7 @@ export const DECKS_QUERY = `
 
 export const DUE_QUERY = `
   SELECT
-    due,
+    c.balancedDue as due,
     CASE
       WHEN c.interval < 20 THEN 'learning'
       ELSE 'known'
@@ -68,15 +68,16 @@ export const DUE_QUERY = `
     COUNT(*) as count
   FROM card c
   JOIN deck d ON c.deckId = d.id
-  WHERE d.lang = ? AND c.due BETWEEN ? AND ? AND c.del = 0`;
+  WHERE d.lang = ? AND c.balancedDue BETWEEN ? AND ? AND c.balancedDue > 0
+    AND c.del = 0 AND c.seedDel = 0 AND d.del = 0 AND c.suspended = 0 AND c.interval > 0`;
 
 export const INTERVAL_QUERY = `
   SELECT
-    ROUND(interval) as interval_group,
+    MAX(1, ROUND(interval)) as interval_group,
     COUNT(*) as count
   FROM card c
   JOIN deck d ON c.deckId = d.id
-  WHERE d.lang = ? AND c.del = 0 AND c.interval > 0
+  WHERE d.lang = ? AND c.del = 0 AND c.interval > 0 AND d.del = 0 AND c.suspended = 0
   GROUP BY interval_group
   ORDER BY interval_group`;
 
@@ -134,11 +135,6 @@ export const STUDY_STATS_QUERY = `
   JOIN card c ON r.cardId = c.id
   JOIN deck d ON c.deckId = d.id
   WHERE d.lang = ? AND r.day BETWEEN ? AND ? AND r.del = 0`;
-
-export const CURRENT_DATE_QUERY = `
-  SELECT entry 
-  FROM keyValue
-  WHERE key = 'study.activeDay.currentDate';`;
 
 export const PASS_RATE_QUERY = `
   WITH daily_card_outcomes AS (
@@ -265,5 +261,5 @@ export const WORD_HISTORY_QUERY_WITH_DECK = `
     AND wh.language = cwr.language
   JOIN card c ON cwr.cardId = c.id
   JOIN deck d ON c.deckId = d.id
-  WHERE wh.language = ? AND wh.day >= ? AND wh.del = 0 AND d.id = ? AND c.del = 0 AND cwr.del = 0
+  WHERE wh.language = ? AND wh.day >= ? AND wh.del = 0 AND d.id = ? AND c.del = 0 AND cwr.del = 0 AND d.del = 0
   ORDER BY wh.day ASC, wh.dictForm, wh.secondary, wh.partOfSpeech`;

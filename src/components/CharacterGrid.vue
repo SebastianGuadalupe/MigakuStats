@@ -28,7 +28,9 @@ interface CharacterGroup {
   totalCount: number;
 }
 
-watch([() => props.filterId, () => store.characterStats], async ([newFilterId, stats]) => {
+watch([() => props.filterId, () => store.characterStats], async ([newFilterId, stats], _previous, onCleanup) => {
+  let cancelled = false;
+  onCleanup(() => { cancelled = true; });
   if (!stats) return;
   
   isLoadingFilter.value = true;
@@ -38,12 +40,12 @@ watch([() => props.filterId, () => store.characterStats], async ([newFilterId, s
       stats.knownCharacters,
       stats.learningCharacters
     );
-    filteredKanji.value = result;
+    if (!cancelled) filteredKanji.value = result;
   } catch (error) {
     console.error('Error loading filtered kanji:', error);
-    filteredKanji.value = [];
+    if (!cancelled) filteredKanji.value = [];
   } finally {
-    isLoadingFilter.value = false;
+    if (!cancelled) isLoadingFilter.value = false;
   }
 }, { immediate: true });
 

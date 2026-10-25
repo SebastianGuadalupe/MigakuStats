@@ -7,6 +7,7 @@ import { SELECTORS, ATTRIBUTES } from "./utils/constants";
 import { useAppStore } from "./stores/app";
 import { useCardsStore } from "./stores/cards";
 import WordCount from "./components/WordCount.vue";
+import StreakHero from "./components/StreakHero.vue";
 import NativeStats from "./components/NativeStats.vue";
 import CardsDue from "./components/CardsDue.vue";
 import ReviewHistory from "./components/ReviewHistory.vue";
@@ -25,12 +26,13 @@ import { fetchAvailableDecks } from "./utils/database";
 const appStore = useAppStore();
 const cardsStore = useCardsStore();
 const componentHash = computed(() => appStore.componentHash || "");
+let customScanTimer: number | undefined;
 const themeObserver = ref<MutationObserver | null>(null);
 const languageObserver = ref<MutationObserver | null>(null);
 const moveMode = ref(cardsStore.isMoveModeActive);
 const layout = ref<Layout>(cardsStore.layout);
 const addCardDropdown = ref(false);
-const canAddCard = computed(() => cardsStore.cards.some((c) => !c.visible));
+const canAddCard = computed(() => cardsStore.availableCards.some((c) => !c.visible));
 const deckSelectorDropdown = ref(false);
 const deckSelectorOptions = computed(() =>
   appStore.availableDecks
@@ -43,7 +45,7 @@ const deckSelectorOptions = computed(() =>
 );
 
 const hiddenCardOptions = computed(() => {
-  return cardsStore.cards
+  return cardsStore.availableCards
     .filter((c) => !c.visible)
     .map((card) => ({
       id: card.id,
@@ -53,6 +55,8 @@ const hiddenCardOptions = computed(() => {
 
 function getCardLabel(cardId: string) {
   switch (cardId) {
+    case "StreakHero":
+      return "Streak summary";
     case "NativeStats":
       return "Review heatmap";
     case "WordCount":
@@ -99,6 +103,7 @@ watch(
 
 const cardComponents: Record<string, any> = {
   NativeStats,
+  StreakHero,
   WordCount,
   CardsDue,
   ReviewHistory,
@@ -176,19 +181,13 @@ onMounted(() => {
   if (currentLanguage) {
     appStore.setLanguage(currentLanguage);
   }
-  const componentHash = document.querySelector(SELECTORS.STATISTICS_ELEMENT)
-    ?.attributes[0].nodeName;
-  if (componentHash) {
-    appStore.setComponentHash(componentHash);
-  }
-  logger.debug(`Component hash: ${componentHash}`);
   fetchAvailableDecks().then((decks) => {
     if (decks) {
       appStore.setAvailableDecks(decks);
     }
   });
 
-  window.setTimeout(() => {
+  customScanTimer = window.setTimeout(() => {
     try {
       const nodes = Array.from(document.querySelectorAll('[custom-stat]')) as HTMLElement[];
       for (const node of nodes) {
@@ -211,6 +210,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  clearTimeout(customScanTimer);
   logger.debug("Cleaning up observers");
   if (themeObserver.value) {
     themeObserver.value.disconnect();
@@ -224,30 +224,23 @@ onUnmounted(() => {
 
 function renderCardComponent(id: string) {
   if (cardComponents[id]) return cardComponents[id];
-  const hasCustom = !!document.querySelector(`[custom-stat="${id.replace(/"/g, '\\"')}"]`);
+  const hasCustom = !!document.querySelector(`[custom-stat="${CSS.escape(id)}"]`);
   return hasCustom ? CustomStat : null;
 }
 
-watch(
-  () => {
-    const card = cardsStore.cards.find((c) => c.id === "NativeStats");
-    return card ? card.visible : true;
-  },
-  (visible) => {
-    const node = document.getElementById("original-stats-card-container");
-    if (node) {
-      node.style.display = visible ? "" : "none";
-    }
-  },
-  { immediate: true }
-);
+for (const [id, containerId] of [['NativeStats', 'original-stats-card-container'], ['StreakHero', 'original-streak-hero-container']]) {
+  watch(() => cardsStore.cards.find(card => card.id === id)?.visible ?? true, visible => {
+    const node = document.getElementById(containerId);
+    if (node) node.style.display = visible ? '' : 'none';
+  }, { immediate: true });
+}
 
 watch(
   () => cardsStore.cards.map((c) => ({ id: c.id, visible: c.visible })),
   (cards) => {
     for (const { id, visible } of cards) {
       if (!cardComponents[id]) {
-        const selector = `[custom-stat="${id.replace(/"/g, '\\"')}" ]`;
+        const selector = `[custom-stat="${CSS.escape(id)}" ]`;
         const node = document.querySelector(selector) as HTMLElement | null;
         if (node) {
           node.style.display = visible ? "" : "none";

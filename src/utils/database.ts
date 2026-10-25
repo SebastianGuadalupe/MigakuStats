@@ -1,8 +1,9 @@
+import { getStudyDate, getChartDayNumber, STUDY_ROLLOVER_HOUR } from './studyDay';
 import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
 import pako from 'pako';
 import { logger } from './logger';
 import { DB_CONFIG, APP_SETTINGS, CHART_CONFIG, CHARACTER_STATS } from './constants';
-import { WORD_QUERY, WORD_QUERY_WITH_DECK, DUE_QUERY, CURRENT_DATE_QUERY, REVIEW_HISTORY_QUERY, REVIEW_HISTORY_FIRST_TRY_QUERY, INTERVAL_QUERY, STUDY_STATS_QUERY, PASS_RATE_QUERY, NEW_CARDS_QUERY, CARDS_ADDED_QUERY, CARDS_LEARNED_QUERY, TOTAL_NEW_CARDS_QUERY, CARDS_LEARNED_PER_DAY_QUERY, DECKS_QUERY, NEW_CARDS_TIME_QUERY, REVIEWS_TIME_QUERY, TIME_HISTORY_QUERY, WORD_HISTORY_QUERY, WORD_HISTORY_QUERY_WITH_DECK, WORDS_BY_STATUS_QUERY } from './sql-queries';
+import { WORD_QUERY, WORD_QUERY_WITH_DECK, DUE_QUERY, REVIEW_HISTORY_QUERY, REVIEW_HISTORY_FIRST_TRY_QUERY, INTERVAL_QUERY, STUDY_STATS_QUERY, PASS_RATE_QUERY, NEW_CARDS_QUERY, CARDS_ADDED_QUERY, CARDS_LEARNED_QUERY, TOTAL_NEW_CARDS_QUERY, CARDS_LEARNED_PER_DAY_QUERY, DECKS_QUERY, NEW_CARDS_TIME_QUERY, REVIEWS_TIME_QUERY, TIME_HISTORY_QUERY, WORD_HISTORY_QUERY, WORD_HISTORY_QUERY_WITH_DECK, WORDS_BY_STATUS_QUERY } from './sql-queries';
 import type { WordStats, DueStats, IntervalStats, StudyStats, ReviewHistoryResult, TimeHistoryResult, WordHistoryResult, CharacterStats } from '../types/Database';
 import { Grouping, PeriodId, PassMode } from '../stores/reviewHistory';
 import { Deck } from '../types/Deck';
@@ -20,18 +21,6 @@ const dbState: DatabaseState = {
   isLoading: false,
   error: null,
 };
-
-const DAY_IN_MS = 1000 * 60 * 60 * 24;
-const CHART_START_UTC_MS = Date.UTC(2020, 0, 1);
-
-function getChartDayNumber(date: Date): number {
-  const utcDateMs = Date.UTC(
-    date.getFullYear(),
-    date.getMonth(),
-    date.getDate()
-  );
-  return Math.floor((utcDateMs - CHART_START_UTC_MS) / DAY_IN_MS);
-}
 
 function initDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -51,7 +40,8 @@ function initDB(): Promise<IDBDatabase> {
     };
 
     request.onupgradeneeded = () => {
-      logger.warn('Database upgrade needed (or first time setup)');
+      request.transaction?.abort();
+      reject(new Error('Open Migaku Study and finish syncing before loading statistics.'));
     };
   });
 }
@@ -100,27 +90,30 @@ async function initializeSqlEngine(): Promise<SqlJsStatic | null> {
   }
 }
 
-async function loadDatabase(): Promise<Database | null> {
+let databaseLoad: Promise<Database | null> | null = null;
+let databaseGeneration = 0;
+function loadDatabase(): Promise<Database | null> {
+  if (databaseLoad) return databaseLoad;
+  if (dbState.db) return Promise.resolve(dbState.db);
+  const pending = readDatabase(databaseGeneration).finally(() => {
+    if (databaseLoad === pending) databaseLoad = null;
+  });
+  databaseLoad = pending;
+  return pending;
+}
+
+async function readDatabase(generation: number): Promise<Database | null> {
+  let idb: IDBDatabase | null = null;
   try {
     if (dbState.db) {
       logger.debug('Using existing database instance');
       return dbState.db;
     }
 
-    if (dbState.isLoading) {
-      logger.debug('Database already loading, waiting...');
-      let attempts = 0;
-      while (dbState.isLoading && attempts < 50) {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        attempts++;
-      }
-      return dbState.db;
-    }
-
     dbState.isLoading = true;
     dbState.error = null;
 
-    const idb = await initDB();
+    idb = await initDB();
 
     if (!idb.objectStoreNames.contains(DB_CONFIG.OBJECT_STORE)) {
       const error = `Object store "${DB_CONFIG.OBJECT_STORE}" not found in database "${DB_CONFIG.DB_NAME}"`;
@@ -132,7 +125,7 @@ async function loadDatabase(): Promise<Database | null> {
     }
 
     const data = await new Promise<Uint8Array>((resolve, reject) => {
-      const transaction = idb.transaction([DB_CONFIG.OBJECT_STORE], 'readonly');
+      const transaction = idb!.transaction([DB_CONFIG.OBJECT_STORE], 'readonly');
       const objectStore = transaction.objectStore(DB_CONFIG.OBJECT_STORE);
       const getAllRequest = objectStore.getAll();
 
@@ -188,19 +181,26 @@ async function loadDatabase(): Promise<Database | null> {
     const db = new SQL.Database(decompressedData);
     logger.debug('Database loaded successfully');
 
+    if (generation !== databaseGeneration) { db.close(); return null; }
     dbState.db = db;
     dbState.isLoading = false;
     return db;
   } catch (err) {
+    if (generation !== databaseGeneration) return null;
     logger.error('Failed to load database:', err);
     dbState.error = err instanceof Error ? err.message : 'Unknown error';
     dbState.isLoading = false;
     return null;
+  } finally {
+    idb?.close();
+    if (generation === databaseGeneration) dbState.isLoading = false;
   }
 }
 
 export function clearDatabaseCache(): void {
   logger.debug('Clearing database cache');
+  databaseGeneration++;
+  databaseLoad = null;
   if (dbState.db) {
     try {
       dbState.db.close();
@@ -213,6 +213,7 @@ export function clearDatabaseCache(): void {
 
 export async function reloadDatabase(): Promise<Database | null> {
   logger.debug('Reloading database from IndexedDB');
+  if (databaseLoad) return databaseLoad;
   clearDatabaseCache();
   return loadDatabase();
 }
@@ -343,24 +344,14 @@ export async function fetchDueStats(
       logger.error('Failed to load database');
       return null;
     }
-    let currentDayNumber = 0;
-    let currentDate = new Date();
-    currentDate.setHours(0,0,0,0);
-    try {
-      const dateResult = db.exec(CURRENT_DATE_QUERY);
-      if (dateResult.length > 0 && dateResult[0].values.length > 0 && dateResult[0].values[0][0]) {
-        currentDate = new Date(dateResult[0].values[0][0] + 'T00:00:00');
-        currentDate.setHours(0,0,0,0);
-      }
-    } catch(err) {
-      logger.warn('Could not load study.activeDay.currentDate; using system date', err);
-    }
-    currentDayNumber = getChartDayNumber(currentDate);
+    // activeDay.currentDate tracks app-review prompts, not the scheduler's clock.
+    const currentDate = getStudyDate();
+    const currentDayNumber = getChartDayNumber(currentDate);
     let forecastDays: number;
     let endDayNumber: number;
     if (periodId === 'All time') {
       forecastDays = 3650;
-      let maxDueQuery = `SELECT MAX(due) as maxDue FROM card c\n                          JOIN deck d ON c.deckId = d.id\n                          WHERE d.lang = ? AND c.due >= ? AND c.del = 0`;
+      let maxDueQuery = `SELECT MAX(c.balancedDue) as maxDue FROM card c\n                          JOIN deck d ON c.deckId = d.id\n                          WHERE d.lang = ? AND c.balancedDue >= ? AND c.balancedDue > 0 AND c.del = 0 AND c.seedDel = 0 AND d.del = 0 AND c.suspended = 0 AND c.interval > 0`;
       const maxDueParams: (string|number)[] = [language, currentDayNumber];
       if (deckId !== APP_SETTINGS.DEFAULT_DECK_ID) {
         maxDueQuery += ' AND c.deckId = ?';
@@ -395,7 +386,7 @@ export async function fetchDueStats(
       dueQuery += ' AND c.deckId = ?';
       params.push(deckId);
     }
-    dueQuery += ' GROUP BY due, interval_range ORDER BY due';
+    dueQuery += ' GROUP BY c.balancedDue, interval_range ORDER BY c.balancedDue';
     const dueResults = db.exec(dueQuery, params);
     const labels: string[] = [];
     const knownCounts = new Array(actualForecastDays).fill(0);
@@ -461,7 +452,7 @@ export async function fetchIntervalStats(
     }
 
     const results = db.exec(intervalQuery, params);
-    if (results.length === 0 || results[0].values.length === 0) return null;
+    if (results.length === 0 || results[0].values.length === 0) return { labels: [], counts: [] };
 
     const intervalMap = new Map<number, number>();
     let maxInterval = 0;
@@ -511,8 +502,7 @@ export async function fetchStudyStats(
     const db = await loadDatabase();
     if (!db) return null;
 
-    let currentDate = new Date();
-    currentDate.setHours(0, 0, 0, 0);
+    const currentDate = getStudyDate();
     const startDate = new Date(CHART_CONFIG.START_YEAR, CHART_CONFIG.START_MONTH, CHART_CONFIG.START_DAY);
     let currentDayNumber = getChartDayNumber(currentDate);
 
@@ -571,7 +561,7 @@ export async function fetchStudyStats(
     let cardsAddedQuery = CARDS_ADDED_QUERY;
     const startDayDate = new Date(startDate);
     startDayDate.setDate(startDate.getDate() + startDayNumber);
-    startDayDate.setHours(0,0,0,0);
+    startDayDate.setHours(STUDY_ROLLOVER_HOUR, 0, 0, 0);
     let cardsAddedParams: (string|number)[] = [language, startDayDate.getTime(), new Date().getTime()];
     if (deckId !== APP_SETTINGS.DEFAULT_DECK_ID) {
       cardsAddedQuery = cardsAddedQuery.replace('AND c.del = 0', 'AND c.deckId = ? AND c.del = 0');
@@ -694,8 +684,7 @@ export async function fetchReviewHistory(
       return null;
     }
 
-    let currentDate = new Date();
-    currentDate.setHours(0, 0, 0, 0);
+    const currentDate = getStudyDate();
     let currentDayNumber = getChartDayNumber(currentDate);
 
     let period: string | number;
@@ -709,14 +698,14 @@ export async function fetchReviewHistory(
     
     let periodDays: number;
     if (period === 'All') {
-      periodDays = currentDayNumber;
+      periodDays = currentDayNumber + 1;
     } else {
       const periodMonths = typeof period === 'number' ? period : parseInt(period, 10) || 1;
       const periodStartDate = new Date(currentDate);
       periodStartDate.setMonth(currentDate.getMonth() - periodMonths);
       periodDays = Math.round((currentDate.getTime() - periodStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
     }
-    const periodDaysAgoDayNumber = currentDayNumber - periodDays;
+    const periodDaysAgoDayNumber = currentDayNumber - periodDays + 1;
 
     let reviewQuery =
       passMode === "First try"
@@ -872,8 +861,7 @@ export async function fetchTimeHistory(
       return null;
     }
 
-    let currentDate = new Date();
-    currentDate.setHours(0, 0, 0, 0);
+    const currentDate = getStudyDate();
     let currentDayNumber = getChartDayNumber(currentDate);
 
     let period: string | number;
@@ -887,14 +875,14 @@ export async function fetchTimeHistory(
     
     let periodDays: number;
     if (period === 'All') {
-      periodDays = currentDayNumber;
+      periodDays = currentDayNumber + 1;
     } else {
       const periodMonths = typeof period === 'number' ? period : parseInt(period, 10) || 1;
       const periodStartDate = new Date(currentDate);
       periodStartDate.setMonth(currentDate.getMonth() - periodMonths);
       periodDays = Math.round((currentDate.getTime() - periodStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
     }
-    const periodDaysAgoDayNumber = currentDayNumber - periodDays;
+    const periodDaysAgoDayNumber = currentDayNumber - periodDays + 1;
 
     let timeQuery = TIME_HISTORY_QUERY;
     let timeQueryParams: (string | number)[] = [language, periodDaysAgoDayNumber];
@@ -1067,8 +1055,7 @@ export async function fetchWordHistory(
       return null;
     }
 
-    let currentDate = new Date();
-    currentDate.setHours(0, 0, 0, 0);
+    const currentDate = getStudyDate();
     let currentDayNumber = getChartDayNumber(currentDate);
 
     let period: string | number;
@@ -1082,14 +1069,14 @@ export async function fetchWordHistory(
     
     let periodDays: number;
     if (period === 'All') {
-      periodDays = currentDayNumber;
+      periodDays = currentDayNumber + 1;
     } else {
       const periodMonths = typeof period === 'number' ? period : parseInt(period, 10) || 1;
       const periodStartDate = new Date(currentDate);
       periodStartDate.setMonth(currentDate.getMonth() - periodMonths);
       periodDays = Math.round((currentDate.getTime() - periodStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
     }
-    const periodDaysAgoDayNumber = currentDayNumber - periodDays;
+    const periodDaysAgoDayNumber = currentDayNumber - periodDays + 1;
 
     const queryStartDay = viewMode === 'cumulative' ? 0 : periodDaysAgoDayNumber;
 
@@ -1109,7 +1096,7 @@ export async function fetchWordHistory(
         const partOfSpeech = String(row[3] ?? '');
         const knownStatus = String(row[4] ?? '');
         const prevKnownStatus = row[5] ? String(row[5]) : null;
-        const wordKey = `${dictForm}|${secondary}|${partOfSpeech}`;
+        const wordKey = JSON.stringify([dictForm, secondary, partOfSpeech]);
         
         if (!wordStatusMap.has(wordKey)) {
           wordStatusMap.set(wordKey, new Map());
@@ -1132,8 +1119,7 @@ export async function fetchWordHistory(
 
     const dateLabels: string[] = [];
     const knownCounts: number[] = [];
-    const dayMap = new Map<number, { index: number }>();
-    const aggregateMap = new Map<string, { index: number, knownWords?: Set<string>, netChange?: number }>();
+    const aggregateMap = new Map<string, { index: number }>();
 
     let currentGroupKey: string | number | null = null;
     let groupIndex = -1;
@@ -1158,11 +1144,7 @@ export async function fetchWordHistory(
           knownCounts.push(0);
           currentGroupKey = groupKey;
           groupIndex++;
-          if (viewMode === 'cumulative') {
-            aggregateMap.set(groupKey, { index: groupIndex, knownWords: new Set() });
-          } else {
-            aggregateMap.set(groupKey, { index: groupIndex, netChange: 0 });
-          }
+          aggregateMap.set(groupKey, { index: groupIndex });
         }
       } else if (grouping === 'Months') {
         groupKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -1172,175 +1154,51 @@ export async function fetchWordHistory(
           knownCounts.push(0);
           currentGroupKey = groupKey;
           groupIndex++;
-          if (viewMode === 'cumulative') {
-            aggregateMap.set(groupKey, { index: groupIndex, knownWords: new Set() });
-          } else {
-            aggregateMap.set(groupKey, { index: groupIndex, netChange: 0 });
-          }
+          aggregateMap.set(groupKey, { index: groupIndex });
         }
       } else {
         groupKey = dayNumber;
         displayDate = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
         dateLabels.push(displayDate);
         knownCounts.push(0);
-        dayMap.set(dayNumber, { index: i });
       }
     }
 
-    if (viewMode === 'cumulative') {
-      const cumulativeKnownWords = new Map<number, Set<string>>();
-
-      const wordInitialStatus = new Map<string, string | null>();
-      wordStatusMap.forEach((dayMap, wordKey) => {
-        let earliestDay = Infinity;
-        let earliestPrevStatus: string | null = null;
-        dayMap.forEach((statusInfo, day) => {
-          if (day < earliestDay) {
-            earliestDay = day;
-            earliestPrevStatus = statusInfo.prevKnownStatus;
-          }
-        });
-        if (earliestPrevStatus === 'KNOWN') {
-          wordInitialStatus.set(wordKey, 'KNOWN');
-        } else {
-          wordInitialStatus.set(wordKey, null);
-        }
+    const events: { day: number; word: string; knownStatus: string; prevKnownStatus: string | null }[] = [];
+    const knownWords = new Set<string>();
+    wordStatusMap.forEach((history, word) => {
+      let firstDay = Infinity;
+      let initial: string | null = null;
+      history.forEach((status, day) => {
+        events.push({ day, word, ...status });
+        if (day < firstDay) { firstDay = day; initial = status.prevKnownStatus; }
       });
-      
-      for (let i = 0; i < actualPeriodDays; i++) {
-        const dayNumber = currentDayNumber - (actualPeriodDays - 1 - i);
-        const knownWordsOnDay = new Set<string>();
-        
-        wordStatusMap.forEach((dayMap, wordKey) => {
-          let latestStatus: string | null = null;
-          let latestDay = -1;
-          
-          dayMap.forEach((statusInfo, day) => {
-            if (day <= dayNumber && day > latestDay) {
-              latestDay = day;
-              latestStatus = statusInfo.knownStatus;
-            }
-          });
-          
-          if (latestStatus === null) {
-            const initialStatus = wordInitialStatus.get(wordKey);
-            if (initialStatus === 'KNOWN') {
-              latestStatus = 'KNOWN';
-            }
-          }
-          
-          if (latestStatus === 'KNOWN') {
-            knownWordsOnDay.add(wordKey);
-          }
-        });
-        
-        cumulativeKnownWords.set(dayNumber, knownWordsOnDay);
-      }
-      
-      for (let i = 0; i < actualPeriodDays; i++) {
-        const dayNumber = currentDayNumber - (actualPeriodDays - 1 - i);
-        const date = new Date(startDate);
-        date.setDate(date.getDate() + dayNumber);
-        date.setHours(0, 0, 0, 0);
-        
-        const knownWordsOnDay = cumulativeKnownWords.get(dayNumber) || new Set();
-        
-        if (grouping === 'Weeks') {
-          const dayOfWeek = (date.getDay() + 6) % 7;
-          const weekStartDate = new Date(date);
-          weekStartDate.setDate(date.getDate() - dayOfWeek);
-          const groupKey = weekStartDate.toISOString().split('T')[0];
-          if (aggregateMap.has(groupKey)) {
-            const targetMapEntry = aggregateMap.get(groupKey);
-            const isLastDayOfWeek = date.getDay() === 0 || i === actualPeriodDays - 1;
-            if (targetMapEntry && (isLastDayOfWeek || i === actualPeriodDays - 1)) {
-              targetMapEntry.knownWords = new Set(knownWordsOnDay);
-            }
-          }
-        } else if (grouping === 'Months') {
-          const groupKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-          if (aggregateMap.has(groupKey)) {
-            const targetMapEntry = aggregateMap.get(groupKey);
-            const nextDate = new Date(date);
-            nextDate.setDate(date.getDate() + 1);
-            const isLastDayOfMonth = nextDate.getMonth() !== date.getMonth() || i === actualPeriodDays - 1;
-            if (targetMapEntry && (isLastDayOfMonth || i === actualPeriodDays - 1)) {
-              targetMapEntry.knownWords = new Set(knownWordsOnDay);
-            }
-          }
-        } else {
-          if (dayMap.has(dayNumber)) {
-            const targetIndex = dayMap.get(dayNumber)?.index ?? -1;
-            knownCounts[targetIndex] = knownWordsOnDay.size;
-          }
+      if (initial === 'KNOWN') knownWords.add(word);
+    });
+    events.sort((a, b) => a.day - b.day);
+    let cursor = 0;
+    for (let i = 0; i < actualPeriodDays; i++) {
+      const day = currentDayNumber - actualPeriodDays + 1 + i;
+      let netChange = 0;
+      while (cursor < events.length && events[cursor].day <= day) {
+        const event = events[cursor++];
+        if (event.knownStatus === 'KNOWN') knownWords.add(event.word);
+        else knownWords.delete(event.word);
+        if (event.day === day) {
+          netChange += Number(event.knownStatus === 'KNOWN') - Number(event.prevKnownStatus === 'KNOWN');
         }
       }
-      
-      if (grouping === 'Weeks' || grouping === 'Months') {
-        aggregateMap.forEach(entry => {
-          if (entry.knownWords) {
-            knownCounts[entry.index] = entry.knownWords.size;
-          }
-        });
+      const date = new Date(startDate);
+      date.setDate(date.getDate() + day);
+      let index = i;
+      if (grouping === 'Weeks') {
+        date.setDate(date.getDate() - (date.getDay() + 6) % 7);
+        index = aggregateMap.get(date.toISOString().split('T')[0])!.index;
+      } else if (grouping === 'Months') {
+        index = aggregateMap.get(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`)!.index;
       }
-    } else {
-      for (let i = 0; i < actualPeriodDays; i++) {
-        const dayNumber = currentDayNumber - (actualPeriodDays - 1 - i);
-        const date = new Date(startDate);
-        date.setDate(date.getDate() + dayNumber);
-        date.setHours(0, 0, 0, 0);
-        
-        let netChange = 0;
-        wordStatusMap.forEach((dayMap) => {
-          const statusInfo = dayMap.get(dayNumber);
-          if (statusInfo) {
-            if (statusInfo.knownStatus === 'KNOWN' && statusInfo.prevKnownStatus !== 'KNOWN') {
-              netChange += 1;
-            }
-            if (statusInfo.prevKnownStatus === 'KNOWN' && statusInfo.knownStatus !== 'KNOWN') {
-              netChange -= 1;
-            }
-          }
-        });
-        
-        let targetIndex = -1;
-        
-        if (grouping === 'Weeks') {
-          const dayOfWeek = (date.getDay() + 6) % 7;
-          const weekStartDate = new Date(date);
-          weekStartDate.setDate(date.getDate() - dayOfWeek);
-          const groupKey = weekStartDate.toISOString().split('T')[0];
-          if (aggregateMap.has(groupKey)) {
-            const targetMapEntry = aggregateMap.get(groupKey);
-            targetIndex = targetMapEntry?.index ?? -1;
-            if (targetMapEntry && targetMapEntry.netChange !== undefined) {
-              targetMapEntry.netChange += netChange;
-            }
-          }
-        } else if (grouping === 'Months') {
-          const groupKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-          if (aggregateMap.has(groupKey)) {
-            const targetMapEntry = aggregateMap.get(groupKey);
-            targetIndex = targetMapEntry?.index ?? -1;
-            if (targetMapEntry && targetMapEntry.netChange !== undefined) {
-              targetMapEntry.netChange += netChange;
-            }
-          }
-        } else {
-          if (dayMap.has(dayNumber)) {
-            targetIndex = dayMap.get(dayNumber)?.index ?? -1;
-            knownCounts[targetIndex] = netChange;
-          }
-        }
-      }
-      
-      if (grouping === 'Weeks' || grouping === 'Months') {
-        aggregateMap.forEach(entry => {
-          if (entry.netChange !== undefined) {
-            knownCounts[entry.index] = entry.netChange;
-          }
-        });
-      }
+      if (viewMode === 'cumulative') knownCounts[index] = knownWords.size;
+      else knownCounts[index] += netChange;
     }
 
     return { labels: dateLabels, knownCounts };

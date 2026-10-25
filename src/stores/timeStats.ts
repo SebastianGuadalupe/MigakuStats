@@ -1,3 +1,4 @@
+import { saveSetting } from '../utils/storage';
 import { defineStore } from "pinia";
 import { ref, watch } from "vue";
 import { fetchTimeHistory, reloadDatabase } from "../utils/database";
@@ -10,6 +11,7 @@ const SETTINGS_KEY = "migaku-timeStats-settings";
 export const useTimeStatsStore = defineStore("timeStats", () => {
   const timeHistory = ref<TimeHistoryResult | null>(null);
   const isLoading = ref(false);
+  let requestId = 0;
   const error = ref("");
   const viewMode = ref<"totals" | "averages">("totals");
   const grouping = ref<Grouping>("Days");
@@ -50,7 +52,7 @@ export const useTimeStatsStore = defineStore("timeStats", () => {
   }
 
   function saveSettingsToStorage() {
-    localStorage.setItem(
+    saveSetting(
       SETTINGS_KEY,
       JSON.stringify({
         viewMode: viewMode.value,
@@ -83,7 +85,7 @@ export const useTimeStatsStore = defineStore("timeStats", () => {
 
   function saveToStorage() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(timeHistory.value));
+      saveSetting(STORAGE_KEY, JSON.stringify(timeHistory.value));
     } catch (err) {
       error.value = "Failed to save time history.";
     }
@@ -98,7 +100,8 @@ export const useTimeStatsStore = defineStore("timeStats", () => {
     groupingParam: Grouping = grouping.value,
     viewModeParam: "totals" | "averages" = viewMode.value
   ) {
-    if (!lang) return;
+    const currentRequest = ++requestId;
+    if (!lang) { isLoading.value = false; return; }
     isLoading.value = true;
     try {
       const stats = await fetchTimeHistory(
@@ -108,12 +111,16 @@ export const useTimeStatsStore = defineStore("timeStats", () => {
         groupingParam,
         viewModeParam
       );
+      if (currentRequest !== requestId) return;
+      if (!stats) throw new Error("Statistics could not be loaded");
       timeHistory.value = stats;
       error.value = "";
     } catch (e) {
+      if (currentRequest !== requestId) return;
+      timeHistory.value = null;
       error.value = "Time history fetch failed";
     } finally {
-      isLoading.value = false;
+      if (currentRequest === requestId) isLoading.value = false;
     }
   }
 
@@ -121,7 +128,7 @@ export const useTimeStatsStore = defineStore("timeStats", () => {
     isLoading.value = true;
     error.value = "";
     timeHistory.value = null;
-    await reloadDatabase();
+    void reloadDatabase();
     await fetchTimeHistoryIfNeeded(
       lang,
       deckId,

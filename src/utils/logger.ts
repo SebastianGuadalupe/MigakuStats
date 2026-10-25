@@ -1,3 +1,4 @@
+import { APP_SETTINGS } from './constants';
 type LogLevel = 'info' | 'warn' | 'error' | 'debug';
 
 interface LogConfig {
@@ -75,13 +76,14 @@ function getCallerComponent(): string {
 
 function createLogger(componentName?: string) {
   const log = (level: LogLevel, ...args: any[]) => {
+    if (level === 'debug' && APP_SETTINGS.ENVIRONMENT === 'prod') return;
     const caller = componentName || getCallerComponent();
     const config = configs[level];
     
     const header = `%cMCS ${caller}`;
     const message = args.length === 1 ? args[0] : args;
     
-    console.log(
+    console[level](
       header,
       `background: ${config.bgColor}; color: ${config.textColor}; padding: 2px 6px; border-radius: 3px; font-weight: bold;`,
       message

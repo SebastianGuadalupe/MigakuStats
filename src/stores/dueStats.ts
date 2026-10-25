@@ -1,3 +1,4 @@
+import { saveSetting } from '../utils/storage';
 import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
 import { fetchDueStats, reloadDatabase } from '../utils/database';
@@ -9,6 +10,7 @@ const SETTINGS_KEY = 'migaku-dueStats-settings';
 export const useDueStatsStore = defineStore('dueStats', () => {
   const dueStats = ref<DueStats|null>(null);
   const isLoading = ref(false);
+  let requestId = 0;
   const error = ref('');
   const periodId = ref<PeriodId>('1 Month');
 
@@ -22,7 +24,7 @@ export const useDueStatsStore = defineStore('dueStats', () => {
     } catch {}
   }
   function saveSettingsToStorage() {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ periodId: periodId.value }));
+    saveSetting(SETTINGS_KEY, JSON.stringify({ periodId: periodId.value }));
   }
   function setPeriod(newPeriodId: PeriodId) {
     periodId.value = newPeriodId;
@@ -40,7 +42,7 @@ export const useDueStatsStore = defineStore('dueStats', () => {
   }
   function saveToStorage() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(dueStats.value));
+      saveSetting(STORAGE_KEY, JSON.stringify(dueStats.value));
     } catch (err) {
       error.value = 'Failed to save due stats.';
     }
@@ -48,16 +50,21 @@ export const useDueStatsStore = defineStore('dueStats', () => {
   watch(dueStats, saveToStorage, { deep: true });
 
   async function fetchDueStatsIfNeeded(lang: string, deckId: string, periodIdParam: PeriodId = periodId.value) {
-    if (!lang) return;
+    const currentRequest = ++requestId;
+    if (!lang) { isLoading.value = false; return; }
     isLoading.value = true;
     try {
       const stats = await fetchDueStats(lang, deckId, periodIdParam);
+      if (currentRequest !== requestId) return;
+      if (!stats) throw new Error("Statistics could not be loaded");
       dueStats.value = stats;
       error.value = '';
     } catch (e) {
+      if (currentRequest !== requestId) return;
+      dueStats.value = null;
       error.value = 'Due stats fetch failed';
     } finally {
-      isLoading.value = false;
+      if (currentRequest === requestId) isLoading.value = false;
     }
   }
 
@@ -65,7 +72,7 @@ export const useDueStatsStore = defineStore('dueStats', () => {
     isLoading.value = true;
     error.value = '';
     dueStats.value = null;
-    await reloadDatabase();
+    void reloadDatabase();
     return fetchDueStatsIfNeeded(lang, deckId, periodId.value);
   }
 

@@ -1,3 +1,4 @@
+import { saveSetting } from '../utils/storage';
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { Layout, GridItemProps } from 'grid-layout-plus';
@@ -6,6 +7,9 @@ export interface CardState {
   id: string;
   visible: boolean;
   item: GridItemProps;
+}
+function validSize(value: number | undefined, fallback: number, maximum = 1000): number {
+  return Number.isFinite(value) && value! > 0 ? Math.min(maximum, Math.ceil(value!)) : fallback;
 }
 const STORAGE_KEY = 'migaku-cards';
 const DEFAULT_CARDS: CardState[] = [
@@ -21,8 +25,19 @@ const DEFAULT_CARDS: CardState[] = [
 ];
 
 export const useCardsStore = defineStore('cards', () => {
-  const cards = ref<CardState[]>([...DEFAULT_CARDS]);
+  const cards = ref<CardState[]>(DEFAULT_CARDS.map(card => ({ ...card, item: { ...card.item } })));
   const isMoveModeActive = ref(false);
+  const streakHeroAvailable = ref(false);
+  function setStreakHeroAvailable(available: boolean) {
+    streakHeroAvailable.value = available;
+    if (!available || cards.value.some(card => card.id === 'StreakHero')) return;
+    // Migrate existing layouts once, making room above the current cards.
+    for (const card of cards.value) card.item.y += 5;
+    cards.value.unshift({ id: 'StreakHero', visible: true,
+      item: { i: 'StreakHero', x: 0, y: 0, w: 12, h: 5, minW: 4, maxW: 12, minH: 5, maxH: Infinity } });
+    saveToStorage();
+  }
+  const availableCards = computed(() => cards.value.filter(card => card.id !== 'StreakHero' || streakHeroAvailable.value));
 
   function loadFromStorage() {
     try {
@@ -30,7 +45,7 @@ export const useCardsStore = defineStore('cards', () => {
       if (stored) {
         const loaded = JSON.parse(stored);
         if (Array.isArray(loaded)) {
-          const merged = loaded.map((userCard: any) => {
+          const merged = loaded.filter((card: any) => card && typeof card.id === 'string' && card.item && ['x', 'y', 'w', 'h'].every(key => Number.isFinite(card.item[key])) && card.item.w > 0 && card.item.h > 0).map((userCard: any) => {
             const defaultCard = DEFAULT_CARDS.find(d => d.id === userCard.id);
             if (defaultCard) {
               return {
@@ -47,7 +62,7 @@ export const useCardsStore = defineStore('cards', () => {
           });
           for (const defaultCard of DEFAULT_CARDS) {
             if (!merged.some((c: any) => c.id === defaultCard.id)) {
-              merged.push(defaultCard);
+              merged.push({ ...defaultCard, item: { ...defaultCard.item } });
             }
           }
           cards.value = merged;
@@ -73,7 +88,7 @@ export const useCardsStore = defineStore('cards', () => {
           h: card.item.h,
         }
       }));
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      saveSetting(STORAGE_KEY, JSON.stringify(data));
     } catch (error) {
       console.error('Failed to save cards to localStorage:', error);
     }
@@ -81,15 +96,15 @@ export const useCardsStore = defineStore('cards', () => {
 
   function hideCard(id: string) {
     const card = cards.value.find(c => c.id === id);
-    if (card) card.visible = false;
+    if (card) { card.visible = false; saveToStorage(); }
   }
   function showCard(id: string) {
     const card = cards.value.find(c => c.id === id);
-    if (card) card.visible = true;
+    if (card) { card.visible = true; saveToStorage(); }
   }
   function toggleCardVisibility(id: string) {
     const card = cards.value.find(c => c.id === id);
-    if (card) card.visible = !card.visible;
+    if (card) { card.visible = !card.visible; saveToStorage(); }
   }
 
   function updateLayout(layoutArr: Layout): void {
@@ -106,7 +121,7 @@ export const useCardsStore = defineStore('cards', () => {
   }
 
   const layout = computed(() =>
-    cards.value.filter((card: CardState) => card.visible).map(card => card.item)
+    availableCards.value.filter((card: CardState) => card.visible).map(card => card.item)
   );
 
   function setMoveMode(value: boolean) {
@@ -116,10 +131,10 @@ export const useCardsStore = defineStore('cards', () => {
   function ensureCard(id: string, opts?: Partial<GridItemProps> & { minW?: number; minH?: number, defaultW?: number, defaultH?: number }): void {
     let card = cards.value.find(c => c.id === id);
     if (!card) {
-      const minW = opts?.minW ?? 4;
-      const minH = opts?.minH ?? 5;
-      const w = opts?.w ?? opts?.defaultW ?? minW;
-      const h = opts?.h ?? opts?.defaultH ?? minH;
+      const minW = validSize(opts?.minW, 4, 12);
+      const minH = validSize(opts?.minH, 5);
+      const w = Math.max(minW, validSize(opts?.w ?? opts?.defaultW, minW, 12));
+      const h = Math.max(minH, validSize(opts?.h ?? opts?.defaultH, minH));
       const x = opts?.x ?? 0;
       const y = opts?.y ?? 1000;
       const item: GridItemProps = {
@@ -134,15 +149,16 @@ export const useCardsStore = defineStore('cards', () => {
       card = { id, visible: true, item };
       cards.value.push(card);
     } else {
-      card.visible = true;
-      if (typeof opts?.minW === 'number') card.item.minW = opts!.minW as any;
-      if (typeof opts?.minH === 'number') card.item.minH = opts!.minH as any;
+      if (opts?.minW !== undefined) card.item.minW = validSize(opts.minW, 4, 12);
+      if (opts?.minH !== undefined) card.item.minH = validSize(opts.minH, 5);
     }
     saveToStorage();
   }
 
   return {
     cards,
+    availableCards,
+    setStreakHeroAvailable,
     layout,
     isMoveModeActive,
     hideCard,

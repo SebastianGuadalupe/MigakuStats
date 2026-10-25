@@ -1,3 +1,4 @@
+import { saveSetting } from '../utils/storage';
 import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
 import { fetchWordHistory, reloadDatabase } from '../utils/database';
@@ -10,6 +11,7 @@ const SETTINGS_KEY = 'migaku-wordHistory-settings';
 export const useWordHistoryStore = defineStore('wordHistory', () => {
   const wordHistory = ref<WordHistoryResult|null>(null);
   const isLoading = ref(false);
+  let requestId = 0;
   const error = ref('');
   const viewMode = ref<'cumulative' | 'daily'>('daily');
   const grouping = ref<Grouping>('Days');
@@ -39,7 +41,7 @@ export const useWordHistoryStore = defineStore('wordHistory', () => {
   }
 
   function saveSettingsToStorage() {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ 
+    saveSetting(SETTINGS_KEY, JSON.stringify({
       viewMode: viewMode.value, 
       grouping: grouping.value, 
       periodId: periodId.value,
@@ -79,7 +81,7 @@ export const useWordHistoryStore = defineStore('wordHistory', () => {
 
   function saveToStorage() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(wordHistory.value));
+      saveSetting(STORAGE_KEY, JSON.stringify(wordHistory.value));
     } catch (err) {
       error.value = 'Failed to save word history.';
     }
@@ -94,16 +96,21 @@ export const useWordHistoryStore = defineStore('wordHistory', () => {
     groupingParam: Grouping = grouping.value,
     viewModeParam: 'cumulative' | 'daily' = viewMode.value
   ) {
-    if (!lang) return;
+    const currentRequest = ++requestId;
+    if (!lang) { isLoading.value = false; return; }
     isLoading.value = true;
     try {
       const stats = await fetchWordHistory(lang, deckId, periodIdParam, groupingParam, viewModeParam);
+      if (currentRequest !== requestId) return;
+      if (!stats) throw new Error("Statistics could not be loaded");
       wordHistory.value = stats;
       error.value = '';
     } catch (e) {
+      if (currentRequest !== requestId) return;
+      wordHistory.value = null;
       error.value = 'Word history fetch failed';
     } finally {
-      isLoading.value = false;
+      if (currentRequest === requestId) isLoading.value = false;
     }
   }
 
@@ -111,7 +118,7 @@ export const useWordHistoryStore = defineStore('wordHistory', () => {
     isLoading.value = true;
     error.value = '';
     wordHistory.value = null;
-    await reloadDatabase();
+    void reloadDatabase();
     await fetchWordHistoryIfNeeded(lang, deckId, periodId.value, grouping.value, viewMode.value);
   }
 

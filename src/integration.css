@@ -1,0 +1,50 @@
+/* Extension styles must not depend on Migaku's generated Vue scope IDs. */
+#migaku-custom-stats-vue-container { width: 100%; min-width: 0; padding-bottom: 100px; }
+#migaku-custom-stats-vue-container .Statistic__card {
+  box-sizing: border-box; width: 100%; height: 100%; max-width: none;
+  border-radius: 16px; padding: 24px;
+}
+#migaku-custom-stats-vue-container .Statistic__title { margin: 0 0 16px; }
+#original-stats-card-container { height: 100%; }
+
+/* Early-access cards follow the native V2 surface; legacy cards retain their styling. */
+#migaku-custom-stats-vue-container[data-mcs-page="modern"] .Statistic__card {
+  background: var(--background-elevation-2);
+  border-radius: var(--mcs-card-radius, 28px);
+  padding: var(--mcs-card-padding, 24px);
+  box-shadow: var(--mcs-card-shadow, none);
+}
+#original-streak-hero-container { height: 100%; background: transparent; }
+#migaku-custom-stats-vue-container [data-card-id="StreakHero"] {
+  background: transparent; border: none; box-shadow: none;
+}
+
+/* Fill the grid slot even when the native heatmap has fewer rows at this width. */
+#migaku-custom-stats-vue-container[data-mcs-page="modern"] [data-card-id="NativeStats"] .NativeStatsCard {
+  border-radius: var(--mcs-card-radius, 28px);
+}
+#migaku-custom-stats-vue-container[data-mcs-page="modern"] .StatisticV2__activityCard {
+  min-height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+#migaku-custom-stats-vue-container[data-mcs-page="modern"] .StatisticV2__heatmap {
+  flex: 1 0 auto;
+}
+/* Only the bottom-left toolbar uses distinct accent colors. */
+#migaku-custom-stats-vue-container[data-mcs-page="modern"] .deck-selector .UiButton__icon {
+  color: var(--accent-1, #b272ff);
+}
+#migaku-custom-stats-vue-container[data-mcs-page="modern"] .MCS__shuffle-button .UiButton__icon {
+  color: #00c7a4;
+}
+#migaku-custom-stats-vue-container[data-mcs-page="modern"] .MCS__undo-button .UiButton__icon {
+  color: #fba335;
+}
+#migaku-custom-stats-vue-container[data-mcs-page="modern"] .MCS__add-button .UiButton__icon {
+  color: #fe4670;
+}
+#migaku-custom-stats-vue-container[data-mcs-page="modern"] .MCS__menu-fab .UiButton__icon {
+  color: #fff;
+}

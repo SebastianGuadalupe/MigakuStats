@@ -74,7 +74,7 @@ function checkResize() {
   if (!wordHistoryContainer.value) return;
   let hideDates = false;
   const wordHistoryCard = cardsStore.cards.find(
-    (c) => c.item.i === "WordHistory"
+    (c) => c.item.i === "KnownWordHistory"
   );
   if (wordHistoryCard && wordHistoryCard.item.h <= 5) {
     hideDates = true;
@@ -153,7 +153,7 @@ const chartData = computed(() => {
           label: "Known Words",
           data: adjustedCounts,
           borderColor: themeColors.value.accent1,
-          backgroundColor: themeColors.value.accent1 + "20",
+          backgroundColor: themeColors.value.accent1Transparent,
           borderWidth: 2,
           pointRadius: 3,
           pointHoverRadius: 5,

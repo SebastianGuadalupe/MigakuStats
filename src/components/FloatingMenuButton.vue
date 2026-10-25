@@ -44,7 +44,7 @@ function useClickOutside(
   handler: (e: MouseEvent) => void,
   extraRefs: any[] = []
 ) {
-  function listener(event: MouseEvent) {
+  function listener(event: PointerEvent) {
     const el = targetRef.value;
     const isInTarget = el && el.contains(event.target as Node);
     const isInExtras = extraRefs.some(
@@ -53,8 +53,8 @@ function useClickOutside(
     if (!el || isInTarget || isInExtras) return;
     handler(event);
   }
-  onMounted(() => document.addEventListener("mousedown", listener));
-  onBeforeUnmount(() => document.removeEventListener("mousedown", listener));
+  onMounted(() => document.addEventListener("pointerdown", listener, true));
+  onBeforeUnmount(() => document.removeEventListener("pointerdown", listener, true));
 }
 
 useClickOutside(wrapperRef, () => (isOpen.value = false), [popoverRef]);
@@ -131,6 +131,7 @@ function updateSetting(key: string, value: any) {
         v-if="isOpen"
         class="MCS__menu-popover UiActionSheet -desktop"
         ref="popoverRef"
+        @keydown.esc.stop="isOpen = false"
         @mousedown.stop
         @click.stop
         :style="{
@@ -143,7 +144,7 @@ function updateSetting(key: string, value: any) {
           right: popoverPos.right + 'px',
         }"
       >
-        <form class="MCS__menu-settings -compact" @mousedown.stop @click.stop>
+        <form class="MCS__menu-settings -compact" @submit.prevent @mousedown.stop @click.stop>
           <div
             v-for="setting in props.settings"
             :key="setting.key"

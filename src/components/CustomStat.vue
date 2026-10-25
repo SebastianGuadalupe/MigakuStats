@@ -48,7 +48,6 @@ function moveCustomNode() {
         if (parent.getAttribute("custom-stat")) {
           break;
         }
-        console.log(parent);
         parent.style.margin = "0";
         parent.style.height = "100%";
         parent = parent.parentElement;
@@ -60,7 +59,7 @@ function moveCustomNode() {
 
 function restoreNode() {
   if (targetNode && originalParent) {
-    if (originalNext) {
+    if (originalNext?.parentNode === originalParent) {
       originalParent.insertBefore(targetNode, originalNext);
     } else {
       originalParent.appendChild(targetNode);
